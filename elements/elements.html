@@ -16312,8 +16312,8 @@ module.exports = Array.isArray || function (arr) {
       app.route = 'home';
     });
 
-    page('/users', function() {
-      app.route = 'users';
+    page('/blog', function() {
+      app.route = 'blog';
     });
 
     page('/users/:name', function(data) {
@@ -16635,7 +16635,7 @@ module.exports = Array.isArray || function (arr) {
     })();
   </script>
 </dom-module>
-<dom-module id="my-list" assetpath="my-list/">
+<dom-module id="country-list" assetpath="country-list/">
   <template>
     <style>
       :host {
@@ -16659,7 +16659,7 @@ module.exports = Array.isArray || function (arr) {
       'use strict';
 
       Polymer({
-        is: 'my-list',
+        is: 'country-list',
 
         properties: {
           items: {
@@ -16670,13 +16670,108 @@ module.exports = Array.isArray || function (arr) {
 
         ready: function() {
           this.items = [
-            'Responsive Web App boilerplate',
-            'Iron Elements and Paper Elements',
-            'End-to-end Build Tooling (including Vulcanize)',
-            'Unit testing with Web Component Tester',
-            'Routing with Page.js',
-            'Offline support with the Platinum Service Worker Elements'
+            'Svizzera',
+            'Austria',
+            'Messico',
+            'Perù',
+            'Kuwait',
+            'Emirati',
+            'Turchia',
+            'India',
+            'Colombia',
+            'Ecuador',
+            'Argentina',
+            'Azerbaijan'
           ];
+        }
+      });
+    })();
+  </script>
+</dom-module>
+<dom-module id="professional-testing-kit" assetpath="professional-testing-kit/">
+  <template>
+    <style include="shared-styles">
+      :host {
+        display: block;
+      }
+
+      span,
+      input {
+        @apply(--paper-font-body2);
+      }
+    </style>
+
+  <h3>Professional testing kit</h3>
+<paper-item>
+  <paper-item-body two-line="">
+    <span>1) How to activate touch on Android device:</span>
+    <div secondary="">a. Open Settings on the Android device.</div>
+    <div secondary="">b. Scroll to the very bottom of the menu and select ‘About phone’.</div>
+    <div secondary="">c. Scroll to the very bottom of the menu and select ‘Build number’ repeatedly. After the 7th or 8th click you should see a message telling you that you are a developer.</div>
+    <div secondary="">d. Click back to return to the main Settings menu.</div>
+    <div secondary="">e. There should be a new ‘Developer Options’ option above to ‘About phone’ option. Select ‘Developer Options’.</div>
+ <div secondary="">f. Under the ‘Input’ heading there is a ‘Show touches’ option. Selecting this will show all touch events on the screen including pinch to zoom gestures and so on.
+On iOS, you can get a similar effect with Touchpose or Fingertips.
+</div>
+  </paper-item-body>
+    </paper-item>
+      
+      
+      <paper-item>
+  <paper-item-body two-line="">
+    <span>2) How to screen recording on Android:</span>
+    <div secondary="">a. https://goo.gl/14ti7W</div>
+  </paper-item-body>
+    </paper-item>
+      
+       <paper-item>
+  <paper-item-body two-line="">
+    <span>3) How to control your Android on your computer:</span>
+    <div secondary="">a. Install Vysor</div>
+  </paper-item-body>
+    </paper-item>  
+      
+      <paper-item>
+  <paper-item-body two-line="">
+    <span>4) How to save a web page as MHT:</span>
+    <div secondary="">a. Viewing and creating MHTML files in current versions of Google Chrome is supported by toggling the "Save Page as MHTML" option on the chrome://flags page.
+
+However, enabling this experimental option disables saving pages as HTML-only or HTML Complete files. From the chrome://flags page:
+
+Save Page as MHTML Mac, Windows, Linux
+Disables saving pages as HTML-only or HTML Complete; enables saving pages only as MHTML: a single text file containing HTML and all sub-resources.</div>
+  </paper-item-body>
+    </paper-item>  
+      
+      
+<paper-item>
+  <paper-item-body two-line="">
+    <span>5) How to screen recording on PC:</span>
+    <div secondary="">a. https://sourceforge.net/projects/camstudio/</div>
+  </paper-item-body>
+</paper-item>  
+      
+      <paper-item>
+  <paper-item-body two-line="">
+    <span>6) Video transcoding:</span>
+    <div secondary="">a. https://handbrake.fr/downloads.php</div>
+  </paper-item-body>
+</paper-item>  
+  </template>
+
+  <script>
+    (function() {
+      'use strict';
+
+      Polymer({
+        is: 'professional-testing-kit',
+
+        properties: {
+          greeting: {
+            type: String,
+            value: 'Welcome!',
+            notify: true
+          }
         }
       });
     })();
