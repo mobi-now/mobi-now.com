@@ -16315,6 +16315,10 @@ module.exports = Array.isArray || function (arr) {
     page('/blog', function() {
       app.route = 'blog';
     });
+         page('/blog/:name', function(data) {
+      app.route = 'professional-testing-kit-full';      
+    });
+
 
     page('/users/:name', function(data) {
       app.route = 'user-info';
