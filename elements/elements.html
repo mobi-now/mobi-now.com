@@ -1,5 +1,21 @@
 <html><head><!--
 @license
+Copyright (c) 2016 The Polymer Project Authors. All rights reserved.
+This code may only be used under the BSD style license found at http://polymer.github.io/LICENSE.txt
+The complete set of authors may be found at http://polymer.github.io/AUTHORS.txt
+The complete set of contributors may be found at http://polymer.github.io/CONTRIBUTORS.txt
+Code distributed by Google as part of the polymer project is also
+subject to an additional IP rights grant found at http://polymer.github.io/PATENTS.txt
+--><!--
+@license
+Copyright (c) 2014 The Polymer Project Authors. All rights reserved.
+This code may only be used under the BSD style license found at http://polymer.github.io/LICENSE.txt
+The complete set of authors may be found at http://polymer.github.io/AUTHORS.txt
+The complete set of contributors may be found at http://polymer.github.io/CONTRIBUTORS.txt
+Code distributed by Google as part of the polymer project is also
+subject to an additional IP rights grant found at http://polymer.github.io/PATENTS.txt
+--><!--
+@license
 Copyright (c) 2015 The Polymer Project Authors. All rights reserved.
 This code may only be used under the BSD style license found at http://polymer.github.io/LICENSE.txt
 The complete set of authors may be found at http://polymer.github.io/AUTHORS.txt
@@ -28,28 +44,22 @@ addEventListener('DOMContentLoaded', resolve);
 }());
 window.Polymer = {
 Settings: function () {
-var user = window.Polymer || {};
+var settings = window.Polymer || {};
 var parts = location.search.slice(1).split('&');
 for (var i = 0, o; i < parts.length && (o = parts[i]); i++) {
 o = o.split('=');
-o[0] && (user[o[0]] = o[1] || true);
+o[0] && (settings[o[0]] = o[1] || true);
 }
-var wantShadow = user.dom === 'shadow';
-var hasShadow = Boolean(Element.prototype.createShadowRoot);
-var nativeShadow = hasShadow && !window.ShadowDOMPolyfill;
-var useShadow = wantShadow && hasShadow;
-var hasNativeImports = Boolean('import' in document.createElement('link'));
-var useNativeImports = hasNativeImports;
-var useNativeCustomElements = !window.CustomElements || window.CustomElements.useNative;
-return {
-wantShadow: wantShadow,
-hasShadow: hasShadow,
-nativeShadow: nativeShadow,
-useShadow: useShadow,
-useNativeShadow: useShadow && nativeShadow,
-useNativeImports: useNativeImports,
-useNativeCustomElements: useNativeCustomElements
-};
+settings.wantShadow = settings.dom === 'shadow';
+settings.hasShadow = Boolean(Element.prototype.createShadowRoot);
+settings.nativeShadow = settings.hasShadow && !window.ShadowDOMPolyfill;
+settings.useShadow = settings.wantShadow && settings.hasShadow;
+settings.hasNativeImports = Boolean('import' in document.createElement('link'));
+settings.useNativeImports = settings.hasNativeImports;
+settings.useNativeCustomElements = !window.CustomElements || window.CustomElements.useNative;
+settings.useNativeShadow = settings.useShadow && settings.nativeShadow;
+settings.usePolyfillProto = !settings.useNativeCustomElements && !Object.__proto__;
+return settings;
 }()
 };
 (function () {
@@ -80,7 +90,6 @@ prototype = Polymer.Base.chainObject(prototype, base);
 prototype.registerCallback();
 return prototype.constructor;
 };
-window.Polymer = Polymer;
 if (userPolymer) {
 for (var i in userPolymer) {
 Polymer[i] = userPolymer[i];
@@ -166,7 +175,6 @@ for (var i = 0, h; i < callbacks.length; i++) {
 h = callbacks[i];
 h[1].apply(h[0], h[2] || Polymer.nar);
 }
-;
 }
 };
 if (window.HTMLImports) {
@@ -178,6 +186,9 @@ Polymer.RenderStatus._catchFirstRender();
 }
 Polymer.ImportStatus = Polymer.RenderStatus;
 Polymer.ImportStatus.whenLoaded = Polymer.ImportStatus.whenReady;
+(function () {
+'use strict';
+var settings = Polymer.Settings;
 Polymer.Base = {
 __isPolymerInstance__: true,
 _addFeature: function (feature) {
@@ -187,13 +198,30 @@ registerCallback: function () {
 this._desugarBehaviors();
 this._doBehavior('beforeRegister');
 this._registerFeatures();
-this._doBehavior('registered');
+if (!settings.lazyRegister) {
+this.ensureRegisterFinished();
+}
 },
 createdCallback: function () {
+if (!this.__hasRegisterFinished) {
+this._ensureRegisterFinished(this.__proto__);
+}
 Polymer.telemetry.instanceCount++;
 this.root = this;
 this._doBehavior('created');
 this._initFeatures();
+},
+ensureRegisterFinished: function () {
+this._ensureRegisterFinished(this);
+},
+_ensureRegisterFinished: function (proto) {
+if (proto.__hasRegisterFinished !== proto.is) {
+proto.__hasRegisterFinished = proto.is;
+if (proto._finishRegisterFeatures) {
+proto._finishRegisterFeatures();
+}
+proto._doBehavior('registered');
+}
 },
 attachedCallback: function () {
 var self = this;
@@ -273,6 +301,7 @@ Polymer.isInstance = function (obj) {
 return Boolean(obj && obj.__isPolymerInstance__);
 };
 Polymer.telemetry.instanceCount = 0;
+}());
 (function () {
 var modules = {};
 var lcModules = {};
@@ -289,7 +318,7 @@ createdCallback: function () {
 this.register();
 },
 register: function (id) {
-var id = id || this.id || this.getAttribute('name') || this.getAttribute('is');
+id = id || this.id || this.getAttribute('name') || this.getAttribute('is');
 if (id) {
 this.id = id;
 modules[id] = this;
@@ -349,11 +378,16 @@ this.behaviors = this._desugarSomeBehaviors(this.behaviors);
 }
 },
 _desugarSomeBehaviors: function (behaviors) {
+var behaviorSet = [];
 behaviors = this._flattenBehaviorsList(behaviors);
 for (var i = behaviors.length - 1; i >= 0; i--) {
-this._mixinBehavior(behaviors[i]);
+var b = behaviors[i];
+if (behaviorSet.indexOf(b) === -1) {
+this._mixinBehavior(b);
+behaviorSet.unshift(b);
 }
-return behaviors;
+}
+return behaviorSet;
 },
 _flattenBehaviorsList: function (behaviors) {
 var flat = [];
@@ -475,7 +509,6 @@ if (info) {
 return info;
 }
 }
-;
 }
 return info || Polymer.nob;
 },
@@ -491,7 +524,7 @@ return p;
 },
 _prepPropertyInfo: function () {
 this._propertyInfo = {};
-for (var i = 0, p; i < this.behaviors.length; i++) {
+for (var i = 0; i < this.behaviors.length; i++) {
 this._addPropertyInfo(this._propertyInfo, this.behaviors[i].properties);
 }
 this._addPropertyInfo(this._propertyInfo, this.properties);
@@ -526,26 +559,17 @@ t.readOnly = s.readOnly;
 });
 Polymer.CaseMap = {
 _caseMap: {},
+_rx: {
+dashToCamel: /-[a-z]/g,
+camelToDash: /([A-Z])/g
+},
 dashToCamelCase: function (dash) {
-var mapped = Polymer.CaseMap._caseMap[dash];
-if (mapped) {
-return mapped;
-}
-if (dash.indexOf('-') < 0) {
-return Polymer.CaseMap._caseMap[dash] = dash;
-}
-return Polymer.CaseMap._caseMap[dash] = dash.replace(/-([a-z])/g, function (m) {
+return this._caseMap[dash] || (this._caseMap[dash] = dash.indexOf('-') < 0 ? dash : dash.replace(this._rx.dashToCamel, function (m) {
 return m[1].toUpperCase();
-});
+}));
 },
 camelToDashCase: function (camel) {
-var mapped = Polymer.CaseMap._caseMap[camel];
-if (mapped) {
-return mapped;
-}
-return Polymer.CaseMap._caseMap[camel] = camel.replace(/([a-z][A-Z])/g, function (g) {
-return g[0] + '-' + g[1].toLowerCase();
-});
+return this._caseMap[camel] || (this._caseMap[camel] = camel.replace(this._rx.camelToDash, '-$1').toLowerCase());
 }
 };
 Polymer.Base._addFeature({
@@ -585,7 +609,7 @@ this._setAttributeToProperty(model, info.attribute, i, info);
 },
 _setAttributeToProperty: function (model, attribute, property, info) {
 if (!this._serializing) {
-var property = property || Polymer.CaseMap.dashToCamelCase(attribute);
+property = property || Polymer.CaseMap.dashToCamelCase(attribute);
 info = info || this._propertyInfo && this._propertyInfo[property];
 if (info && !info.readOnly) {
 var v = this.getAttribute(attribute);
@@ -615,7 +639,7 @@ case Number:
 value = Number(value);
 break;
 case Boolean:
-value = value !== null;
+value = value != null;
 break;
 case Object:
 try {
@@ -646,7 +670,7 @@ case 'boolean':
 return value ? '' : undefined;
 case 'object':
 if (value instanceof Date) {
-return value;
+return value.toString();
 } else if (value) {
 try {
 return JSON.stringify(value);
@@ -659,7 +683,7 @@ return value != null ? value : undefined;
 }
 }
 });
-Polymer.version = '1.2.4';
+Polymer.version = '1.4.0';
 Polymer.Base._addFeature({
 _registerFeatures: function () {
 this._prepIs();
@@ -800,8 +824,8 @@ distances[i][0] = i;
 }
 for (var j = 0; j < columnCount; j++)
 distances[0][j] = j;
-for (var i = 1; i < rowCount; i++) {
-for (var j = 1; j < columnCount; j++) {
+for (i = 1; i < rowCount; i++) {
+for (j = 1; j < columnCount; j++) {
 if (this.equals(current[currentStart + j - 1], old[oldStart + i - 1]))
 distances[i][j] = distances[i - 1][j - 1];
 else {
@@ -881,7 +905,7 @@ return [splice];
 } else if (oldStart == oldEnd)
 return [newSplice(currentStart, [], currentEnd - currentStart)];
 var ops = this.spliceOperationsFromEditDistances(this.calcEditDistances(current, currentStart, currentEnd, old, oldStart, oldEnd));
-var splice = undefined;
+splice = undefined;
 var splices = [];
 var index = currentStart;
 var oldIndex = oldStart;
@@ -1047,7 +1071,7 @@ return { getInnerHTML: getInnerHTML };
 var nativeInsertBefore = Element.prototype.insertBefore;
 var nativeAppendChild = Element.prototype.appendChild;
 var nativeRemoveChild = Element.prototype.removeChild;
-var TreeApi = Polymer.TreeApi = {
+Polymer.TreeApi = {
 arrayCopyChildNodes: function (parent) {
 var copy = [], i = 0;
 for (var n = parent.firstChild; n; n = n.nextSibling) {
@@ -2011,7 +2035,11 @@ get localTarget() {
 return this.event.target;
 },
 get path() {
-return this.event.path;
+var path = this.event.path;
+if (!Array.isArray(path)) {
+path = Array.prototype.slice.call(path);
+}
+return path;
 }
 };
 } else {
@@ -2104,7 +2132,6 @@ return this.node.classList.contains.apply(this.node.classList, arguments);
 'use strict';
 var DomApi = Polymer.DomApi.ctor;
 var Settings = Polymer.Settings;
-var hasDomApi = Polymer.DomApi.hasDomApi;
 DomApi.EffectiveNodesObserver = function (domApi) {
 this.domApi = domApi;
 this.node = this.domApi.node;
@@ -2157,7 +2184,7 @@ if (this._hasListeners()) {
 this._scheduleNotify();
 }
 },
-_notify: function (mxns) {
+_notify: function () {
 this._beforeCallListeners();
 this._callListeners();
 },
@@ -2228,8 +2255,8 @@ for (var j = 0, n; j < s.removed.length && (n = s.removed[j]); j++) {
 info.removedNodes.push(n);
 }
 }
-for (var i = 0, s; i < splices.length && (s = splices[i]); i++) {
-for (var j = s.index; j < s.index + s.addedCount; j++) {
+for (i = 0, s; i < splices.length && (s = splices[i]); i++) {
+for (j = s.index; j < s.index + s.addedCount; j++) {
 info.addedNodes.push(newNodes[j]);
 }
 }
@@ -2247,7 +2274,6 @@ enableShadowAttributeTracking: function () {
 if (Settings.useShadow) {
 var baseSetup = DomApi.EffectiveNodesObserver.prototype._setup;
 var baseCleanup = DomApi.EffectiveNodesObserver.prototype._cleanup;
-var beforeCallListeners = DomApi.EffectiveNodesObserver.prototype._beforeCallListeners;
 Polymer.Base.extend(DomApi.EffectiveNodesObserver.prototype, {
 _setup: function () {
 if (!this._observer) {
@@ -2562,7 +2588,7 @@ d -= s.addedCount;
 }
 for (var i = 0, s, next; i < splices.length && (s = splices[i]); i++) {
 next = composed[s.index];
-for (var j = s.index, n; j < s.index + s.addedCount; j++) {
+for (j = s.index, n; j < s.index + s.addedCount; j++) {
 n = children[j];
 TreeApi.Composed.insertBefore(container, n, next);
 composed.splice(j, 0, n);
@@ -2839,7 +2865,7 @@ _parseNodeAnnotations: function (node, list, stripWhiteSpace) {
 return node.nodeType === Node.TEXT_NODE ? this._parseTextNodeAnnotation(node, list) : this._parseElementAnnotations(node, list, stripWhiteSpace);
 },
 _bindingRegex: function () {
-var IDENT = '(?:' + '[a-zA-Z_$][\\w.:$-*]*' + ')';
+var IDENT = '(?:' + '[a-zA-Z_$][\\w.:$\\-*]*' + ')';
 var NUMBER = '(?:' + '[-+]?[0-9]*\\.?[0-9]+(?:[eE][-+]?[0-9]+)?' + ')';
 var SQUOTE_STRING = '(?:' + '\'(?:[^\'\\\\]|\\\\.)*\'' + ')';
 var DQUOTE_STRING = '(?:' + '"(?:[^"\\\\]|\\\\.)*"' + ')';
@@ -3018,12 +3044,14 @@ if (node.localName === 'input' && origName === 'value') {
 node.setAttribute(origName, '');
 }
 node.removeAttribute(origName);
+var propertyName = Polymer.CaseMap.dashToCamelCase(name);
 if (kind === 'property') {
-name = Polymer.CaseMap.dashToCamelCase(name);
+name = propertyName;
 }
 return {
 kind: kind,
 name: name,
+propertyName: propertyName,
 parts: parts,
 literal: literal,
 isCompound: parts.length !== 1
@@ -3128,8 +3156,10 @@ var b = note.bindings[j];
 for (var k = 0; k < b.parts.length; k++) {
 var p = b.parts[k];
 if (!p.literal) {
-p.signature = this._parseMethod(p.value);
-if (!p.signature) {
+var signature = this._parseMethod(p.value);
+if (signature) {
+p.signature = signature;
+} else {
 p.model = this._modelForPath(p.value);
 }
 }
@@ -3193,7 +3223,7 @@ this._marshalAnnotatedNodes();
 this._marshalAnnotatedListeners();
 }
 },
-_configureAnnotationReferences: function (config) {
+_configureAnnotationReferences: function () {
 var notes = this._notes;
 var nodes = this._nodes;
 for (var i = 0; i < notes.length; i++) {
@@ -3522,7 +3552,7 @@ if (type === 'touchstart' || type === 'touchmove') {
 Gestures.handleTouchAction(ev);
 }
 }
-if (type === 'touchend') {
+if (type === 'touchend' && !ev.__polymerSimulatedTouch) {
 POINTERSTATE.mouse.target = Polymer.dom(ev).rootTarget;
 ignoreMouse(true);
 }
@@ -3536,14 +3566,12 @@ var recognizers = Gestures.recognizers;
 for (var i = 0, r; i < recognizers.length; i++) {
 r = recognizers[i];
 if (gs[r.name] && !handled[r.name]) {
-if (r.flow && r.flow.start.indexOf(ev.type) > -1) {
-if (r.reset) {
+if (r.flow && r.flow.start.indexOf(ev.type) > -1 && r.reset) {
 r.reset();
 }
 }
 }
-}
-for (var i = 0, r; i < recognizers.length; i++) {
+for (i = 0, r; i < recognizers.length; i++) {
 r = recognizers[i];
 if (gs[r.name] && !handled[r.name]) {
 handled[r.name] = true;
@@ -3808,6 +3836,9 @@ var movefn = function movefn(e) {
 var x = e.clientX, y = e.clientY;
 if (self.hasMovedEnough(x, y)) {
 self.info.state = self.info.started ? e.type === 'mouseup' ? 'end' : 'track' : 'start';
+if (self.info.state === 'start') {
+Gestures.prevent('tap');
+}
 self.info.addMove({
 x: x,
 y: y
@@ -3822,7 +3853,6 @@ self.info.started = true;
 };
 var upfn = function upfn(e) {
 if (self.info.started) {
-Gestures.prevent('tap');
 movefn(e);
 }
 untrackDocument(self.info);
@@ -3841,6 +3871,9 @@ var t = Gestures.findOriginalTarget(e);
 var ct = e.changedTouches[0];
 var x = ct.clientX, y = ct.clientY;
 if (this.hasMovedEnough(x, y)) {
+if (this.info.state === 'start') {
+Gestures.prevent('tap');
+}
 this.info.addMove({
 x: x,
 y: y
@@ -3854,7 +3887,6 @@ touchend: function (e) {
 var t = Gestures.findOriginalTarget(e);
 var ct = e.changedTouches[0];
 if (this.info.started) {
-Gestures.prevent('tap');
 this.info.state = 'end';
 this.info.addMove({
 x: ct.clientX,
@@ -4063,7 +4095,7 @@ return n.nodeType === Node.ELEMENT_NODE;
 fire: function (type, detail, options) {
 options = options || Polymer.nob;
 var node = options.node || this;
-var detail = detail === null || detail === undefined ? {} : detail;
+detail = detail === null || detail === undefined ? {} : detail;
 var bubbles = options.bubbles === undefined ? true : options.bubbles;
 var cancelable = Boolean(options.cancelable);
 var useCache = options._useCache;
@@ -4247,7 +4279,7 @@ _sortPropertyEffects: function () {
 var EFFECT_ORDER = {
 'compute': 0,
 'annotation': 1,
-'computedAnnotation': 2,
+'annotatedComputation': 2,
 'reflect': 3,
 'notify': 4,
 'observer': 5,
@@ -4280,11 +4312,11 @@ Object.defineProperty(model, property, defun);
 upper: function (name) {
 return name[0].toUpperCase() + name.substring(1);
 },
-_addAnnotatedListener: function (model, index, property, path, event) {
+_addAnnotatedListener: function (model, index, property, path, event, negated) {
 if (!model._bindListeners) {
 model._bindListeners = [];
 }
-var fn = this._notedListenerFactory(property, path, this._isStructured(path));
+var fn = this._notedListenerFactory(property, path, this._isStructured(path), negated);
 var eventName = event || Polymer.CaseMap.camelToDashCase(property) + '-changed';
 model._bindListeners.push({
 index: index,
@@ -4300,12 +4332,15 @@ return path.indexOf('.') > 0;
 _isEventBogus: function (e, target) {
 return e.path && e.path[0] !== target;
 },
-_notedListenerFactory: function (property, path, isStructured) {
+_notedListenerFactory: function (property, path, isStructured, negated) {
 return function (target, value, targetPath) {
 if (targetPath) {
 this._notifyPath(this._fixPath(path, property, targetPath), value);
 } else {
 value = target[property];
+if (negated) {
+value = !value;
+}
 if (!isStructured) {
 this[path] = value;
 } else {
@@ -4325,7 +4360,6 @@ for (var i = 0, l = b$.length, info; i < l && (info = b$[i]); i++) {
 var node = inst._nodes[info.index];
 this._addNotifyListener(node, inst, info.event, info.changedFn);
 }
-;
 },
 _addNotifyListener: function (element, context, event, changedFn) {
 element.addEventListener(event, function (e) {
@@ -4335,7 +4369,7 @@ return context._notifyListener(changedFn, e);
 };
 Polymer.Base.extend(Polymer.Bind, {
 _shouldAddListener: function (effect) {
-return effect.name && effect.kind != 'attribute' && effect.kind != 'text' && !effect.isCompound && effect.parts[0].mode === '{' && !effect.parts[0].negate;
+return effect.name && effect.kind != 'attribute' && effect.kind != 'text' && !effect.isCompound && effect.parts[0].mode === '{';
 },
 _annotationEffect: function (source, value, effect) {
 if (source != effect.value) {
@@ -4373,19 +4407,22 @@ var args = Polymer.Bind._marshalArgs(this.__data__, effect, source, value);
 if (args) {
 fn.apply(this, args);
 }
+} else if (effect.dynamicFn) {
 } else {
 this._warn(this._logf('_complexObserverEffect', 'observer method `' + effect.method + '` not defined'));
 }
 },
 _computeEffect: function (source, value, effect) {
-var args = Polymer.Bind._marshalArgs(this.__data__, effect, source, value);
-if (args) {
 var fn = this[effect.method];
 if (fn) {
-this.__setProperty(effect.name, fn.apply(this, args));
+var args = Polymer.Bind._marshalArgs(this.__data__, effect, source, value);
+if (args) {
+var computedvalue = fn.apply(this, args);
+this.__setProperty(effect.name, computedvalue);
+}
+} else if (effect.dynamicFn) {
 } else {
 this._warn(this._logf('_computeEffect', 'compute method `' + effect.method + '` not defined'));
-}
 }
 },
 _annotatedComputationEffect: function (source, value, effect) {
@@ -4400,6 +4437,7 @@ computedvalue = !computedvalue;
 }
 this._applyEffectValue(effect, computedvalue);
 }
+} else if (effect.dynamicFn) {
 } else {
 computedHost._warn(computedHost._logf('_annotatedComputationEffect', 'compute method `' + effect.method + '` not defined'));
 }
@@ -4407,6 +4445,7 @@ computedHost._warn(computedHost._logf('_annotatedComputationEffect', 'compute me
 _marshalArgs: function (model, effect, path, value) {
 var values = [];
 var args = effect.args;
+var bailoutEarly = args.length > 1 || effect.dynamicFn;
 for (var i = 0, l = args.length; i < l; i++) {
 var arg = args[i];
 var name = arg.name;
@@ -4418,7 +4457,7 @@ v = Polymer.Base._get(name, model);
 } else {
 v = model[name];
 }
-if (args.length > 1 && v === undefined) {
+if (bailoutEarly && v === undefined) {
 return;
 }
 if (arg.wildcard) {
@@ -4463,7 +4502,12 @@ if (prop.notify) {
 this._addPropertyEffect(p, 'notify', { event: Polymer.CaseMap.camelToDashCase(p) + '-changed' });
 }
 if (prop.reflectToAttribute) {
-this._addPropertyEffect(p, 'reflect', { attribute: Polymer.CaseMap.camelToDashCase(p) });
+var attr = Polymer.CaseMap.camelToDashCase(p);
+if (attr[0] === '-') {
+this._warn(this._logf('_addPropertyEffects', 'Property ' + p + ' cannot be reflected to attribute ' + attr + ' because "-" is not a valid starting attribute name. Use a lowercase first letter for the property instead.'));
+} else {
+this._addPropertyEffect(p, 'reflect', { attribute: attr });
+}
 }
 if (prop.readOnly) {
 Polymer.Bind.ensurePropertyEffects(this, p);
@@ -4473,12 +4517,23 @@ Polymer.Bind.ensurePropertyEffects(this, p);
 },
 _addComputedEffect: function (name, expression) {
 var sig = this._parseMethod(expression);
+var dynamicFn = sig.dynamicFn;
 for (var i = 0, arg; i < sig.args.length && (arg = sig.args[i]); i++) {
 this._addPropertyEffect(arg.model, 'compute', {
 method: sig.method,
 args: sig.args,
 trigger: arg,
-name: name
+name: name,
+dynamicFn: dynamicFn
+});
+}
+if (dynamicFn) {
+this._addPropertyEffect(sig.method, 'compute', {
+method: sig.method,
+args: sig.args,
+trigger: null,
+name: name,
+dynamicFn: dynamicFn
 });
 }
 },
@@ -4500,11 +4555,21 @@ var sig = this._parseMethod(observer);
 if (!sig) {
 throw new Error('Malformed observer expression \'' + observer + '\'');
 }
+var dynamicFn = sig.dynamicFn;
 for (var i = 0, arg; i < sig.args.length && (arg = sig.args[i]); i++) {
 this._addPropertyEffect(arg.model, 'complexObserver', {
 method: sig.method,
 args: sig.args,
-trigger: arg
+trigger: arg,
+dynamicFn: dynamicFn
+});
+}
+if (dynamicFn) {
+this._addPropertyEffect(sig.method, 'complexObserver', {
+method: sig.method,
+args: sig.args,
+trigger: null,
+dynamicFn: dynamicFn
 });
 }
 },
@@ -4518,17 +4583,21 @@ this._addAnnotationEffect(binding, i);
 },
 _addAnnotationEffect: function (note, index) {
 if (Polymer.Bind._shouldAddListener(note)) {
-Polymer.Bind._addAnnotatedListener(this, index, note.name, note.parts[0].value, note.parts[0].event);
+Polymer.Bind._addAnnotatedListener(this, index, note.name, note.parts[0].value, note.parts[0].event, note.parts[0].negate);
 }
 for (var i = 0; i < note.parts.length; i++) {
 var part = note.parts[i];
 if (part.signature) {
 this._addAnnotatedComputationEffect(note, part, index);
 } else if (!part.literal) {
+if (note.kind === 'attribute' && note.name[0] === '-') {
+this._warn(this._logf('_addAnnotationEffect', 'Cannot set attribute ' + note.name + ' because "-" is not a valid attribute starting character'));
+} else {
 this._addPropertyEffect(part.model, 'annotation', {
 kind: note.kind,
 index: index,
 name: note.name,
+propertyName: note.propertyName,
 value: part.value,
 isCompound: note.isCompound,
 compoundIndex: part.compoundIndex,
@@ -4536,6 +4605,7 @@ event: part.event,
 customEvent: part.customEvent,
 negate: part.negate
 });
+}
 }
 }
 },
@@ -4549,6 +4619,9 @@ if (!arg.literal) {
 this.__addAnnotatedComputationEffect(arg.model, index, note, part, arg);
 }
 }
+if (sig.dynamicFn) {
+this.__addAnnotatedComputationEffect(sig.method, index, note, part, null);
+}
 }
 },
 __addAnnotatedComputationEffect: function (property, index, note, part, trigger) {
@@ -4561,16 +4634,21 @@ name: note.name,
 negate: part.negate,
 method: part.signature.method,
 args: part.signature.args,
-trigger: trigger
+trigger: trigger,
+dynamicFn: part.signature.dynamicFn
 });
 },
 _parseMethod: function (expression) {
-var m = expression.match(/([^\s]+?)\((.*)\)/);
+var m = expression.match(/([^\s]+?)\(([\s\S]*)\)/);
 if (m) {
 var sig = {
 method: m[1],
 static: true
 };
+if (this.getPropertyInfo(sig.method) !== Polymer.nob) {
+sig.static = false;
+sig.dynamicFn = true;
+}
 if (m[2].trim()) {
 var args = m[2].replace(/\\,/g, '&comma;').split(',');
 return this._parseArgs(args, sig);
@@ -4658,6 +4736,8 @@ this._effectEffects('__static__', null, this._propertyEffects.__static__);
 }
 }
 });
+(function () {
+var usePolyfillProto = Polymer.Settings.usePolyfillProto;
 Polymer.Base._addFeature({
 _setupConfigure: function (initialConfig) {
 this._config = {};
@@ -4704,7 +4784,10 @@ this._distributeConfig(this._config);
 _configureProperties: function (properties, config) {
 for (var i in properties) {
 var c = properties[i];
-if (c.value !== undefined) {
+if (!usePolyfillProto && this.hasOwnProperty(i) && this._propertyEffects && this._propertyEffects[i]) {
+config[i] = this[i];
+delete this[i];
+} else if (c.value !== undefined) {
 var value = c.value;
 if (typeof value == 'function') {
 value = value.call(this, this._config);
@@ -4722,9 +4805,15 @@ if (fx) {
 for (var i = 0, l = fx.length, x; i < l && (x = fx[i]); i++) {
 if (x.kind === 'annotation' && !x.isCompound) {
 var node = this._nodes[x.effect.index];
-if (node._configValue) {
+var name = x.effect.propertyName;
+var isAttr = x.effect.kind == 'attribute';
+var hasEffect = node._propertyEffects && node._propertyEffects[name];
+if (node._configValue && (hasEffect || !isAttr)) {
 var value = p === x.effect.value ? config[p] : this._get(x.effect.value, config);
-node._configValue(x.effect.name, value);
+if (isAttr) {
+value = node.deserialize(this.serialize(value), node._propertyInfo[name].type);
+}
+node._configValue(name, value);
 }
 }
 }
@@ -4774,6 +4863,7 @@ h[0].call(this, h[1], h[2], h[3]);
 this._handlers = [];
 }
 });
+}());
 (function () {
 'use strict';
 Polymer.Base._addFeature({
@@ -4831,14 +4921,15 @@ array = Array.isArray(prop) ? prop : null;
 }
 if (array) {
 var coll = Polymer.Collection.get(array);
+var old, key;
 if (last[0] == '#') {
-var key = last;
-var old = coll.getItem(key);
+key = last;
+old = coll.getItem(key);
 last = array.indexOf(old);
 coll.setItem(key, value);
 } else if (parseInt(last, 10) == last) {
-var old = prop[last];
-var key = coll.getKey(old);
+old = prop[last];
+key = coll.getKey(old);
 parts[i] = key;
 coll.setItem(key, value);
 }
@@ -5019,7 +5110,7 @@ this._notifySplice(array, info.path, array.length, 0, [ret]);
 }
 return ret;
 },
-splice: function (path, start, deleteCount) {
+splice: function (path, start) {
 var info = {};
 var array = this._get(path, this, info);
 if (start < 0) {
@@ -5147,6 +5238,7 @@ if (s.indexOf(this.MEDIA_START) === 0) {
 node.type = this.types.MEDIA_RULE;
 } else if (s.match(this._rx.keyframesRule)) {
 node.type = this.types.KEYFRAMES_RULE;
+node.keyframesName = node.selector.split(this._rx.multipleSpaces).pop();
 }
 } else {
 if (s.indexOf(this.VAR_START) === 0) {
@@ -5246,14 +5338,14 @@ if (typeof rules === 'string') {
 rules = this.parser.parse(rules);
 }
 if (callback) {
-this.forEachStyleRule(rules, callback);
+this.forEachRule(rules, callback);
 }
 return this.parser.stringify(rules, preserveProperties);
 },
-forRulesInStyles: function (styles, callback) {
+forRulesInStyles: function (styles, styleRuleCallback, keyframesRuleCallback) {
 if (styles) {
 for (var i = 0, l = styles.length, s; i < l && (s = styles[i]); i++) {
-this.forEachStyleRule(this.rulesForStyle(s), callback);
+this.forEachRule(this.rulesForStyle(s), styleRuleCallback, keyframesRuleCallback);
 }
 }
 },
@@ -5263,36 +5355,51 @@ style.__cssRules = this.parser.parse(style.textContent);
 }
 return style.__cssRules;
 },
-forEachStyleRule: function (node, callback) {
+isKeyframesSelector: function (rule) {
+return rule.parent && rule.parent.type === this.ruleTypes.KEYFRAMES_RULE;
+},
+forEachRule: function (node, styleRuleCallback, keyframesRuleCallback) {
 if (!node) {
 return;
 }
 var skipRules = false;
 if (node.type === this.ruleTypes.STYLE_RULE) {
-callback(node);
-} else if (node.type === this.ruleTypes.KEYFRAMES_RULE || node.type === this.ruleTypes.MIXIN_RULE) {
+styleRuleCallback(node);
+} else if (keyframesRuleCallback && node.type === this.ruleTypes.KEYFRAMES_RULE) {
+keyframesRuleCallback(node);
+} else if (node.type === this.ruleTypes.MIXIN_RULE) {
 skipRules = true;
 }
 var r$ = node.rules;
 if (r$ && !skipRules) {
 for (var i = 0, l = r$.length, r; i < l && (r = r$[i]); i++) {
-this.forEachStyleRule(r, callback);
+this.forEachRule(r, styleRuleCallback, keyframesRuleCallback);
 }
 }
 },
-applyCss: function (cssText, moniker, target, afterNode) {
+applyCss: function (cssText, moniker, target, contextNode) {
+var style = this.createScopeStyle(cssText, moniker);
+target = target || document.head;
+var after = contextNode && contextNode.nextSibling || target.firstChild;
+this.__lastHeadApplyNode = style;
+return target.insertBefore(style, after);
+},
+createScopeStyle: function (cssText, moniker) {
 var style = document.createElement('style');
 if (moniker) {
 style.setAttribute('scope', moniker);
 }
 style.textContent = cssText;
-target = target || document.head;
-if (!afterNode) {
-var n$ = target.querySelectorAll('style[scope]');
-afterNode = n$[n$.length - 1];
-}
-target.insertBefore(style, afterNode && afterNode.nextSibling || target.firstChild);
 return style;
+},
+__lastHeadApplyNode: null,
+applyStylePlaceHolder: function (moniker) {
+var placeHolder = document.createComment(' Shady DOM styles for ' + moniker + ' ');
+var after = this.__lastHeadApplyNode ? this.__lastHeadApplyNode.nextSibling : null;
+var scope = document.head;
+scope.insertBefore(placeHolder, after || scope.firstChild);
+this.__lastHeadApplyNode = placeHolder;
+return placeHolder;
 },
 cssFromModules: function (moduleIds, warnIfNotFound) {
 var modules = moduleIds.trim().split(' ');
@@ -5425,8 +5532,10 @@ this._transformRule(rule, this._transformComplexSelector, scope, hostScope);
 },
 _transformRule: function (rule, transformer, scope, hostScope) {
 var p$ = rule.selector.split(COMPLEX_SELECTOR_SEP);
+if (!styleUtil.isKeyframesSelector(rule)) {
 for (var i = 0, l = p$.length, p; i < l && (p = p$[i]); i++) {
 p$[i] = transformer.call(this, p, scope, hostScope);
+}
 }
 rule.selector = rule.transformedSelector = p$.join(COMPLEX_SELECTOR_SEP);
 },
@@ -5434,6 +5543,7 @@ _transformComplexSelector: function (selector, scope, hostScope) {
 var stop = false;
 var hostContext = false;
 var self = this;
+selector = selector.replace(CONTENT_START, HOST + ' $1');
 selector = selector.replace(SIMPLE_SELECTOR_SEP, function (m, c, s) {
 if (!stop) {
 var info = self._transformCompoundSelector(s, c, scope, hostScope);
@@ -5506,10 +5616,10 @@ SCOPE_NAME: 'style-scope'
 var SCOPE_NAME = api.SCOPE_NAME;
 var SCOPE_DOC_SELECTOR = ':not([' + SCOPE_NAME + '])' + ':not(.' + SCOPE_NAME + ')';
 var COMPLEX_SELECTOR_SEP = ',';
-var SIMPLE_SELECTOR_SEP = /(^|[\s>+~]+)([^\s>+~]+)/g;
+var SIMPLE_SELECTOR_SEP = /(^|[\s>+~]+)((?:\[.+?\]|[^\s>+~=\[])+)/g;
 var HOST = ':host';
 var ROOT = ':root';
-var HOST_PAREN = /(\:host)(?:\(((?:\([^)(]*\)|[^)(]*)+?)\))/g;
+var HOST_PAREN = /(:host)(?:\(((?:\([^)(]*\)|[^)(]*)+?)\))/g;
 var HOST_CONTEXT = ':host-context';
 var HOST_CONTEXT_PAREN = /(.*)(?::host-context)(?:\(((?:\([^)(]*\)|[^)(]*)+?)\))(.*)/;
 var CONTENT = '::content';
@@ -5519,6 +5629,7 @@ var CSS_ATTR_PREFIX = '[' + SCOPE_NAME + '~=';
 var CSS_ATTR_SUFFIX = ']';
 var PSEUDO_PREFIX = ':';
 var CLASS = 'class';
+var CONTENT_START = new RegExp('^(' + CONTENT + ')');
 return api;
 }();
 Polymer.StyleExtends = function () {
@@ -5530,8 +5641,8 @@ return Boolean(cssText.match(this.rx.EXTEND));
 transform: function (style) {
 var rules = styleUtil.rulesForStyle(style);
 var self = this;
-styleUtil.forEachStyleRule(rules, function (rule) {
-var map = self._mapRule(rule);
+styleUtil.forEachRule(rules, function (rule) {
+self._mapRuleOntoParent(rule);
 if (rule.parent) {
 var m;
 while (m = self.rx.EXTEND.exec(rule.cssText)) {
@@ -5550,7 +5661,7 @@ rule.cssText = '';
 }
 }, true);
 },
-_mapRule: function (rule) {
+_mapRuleOntoParent: function (rule) {
 if (rule.parent) {
 var map = rule.parent.map || (rule.parent.map = {});
 var parts = rule.selector.split(',');
@@ -5606,17 +5717,20 @@ styleTransformer.element(element, this.is, this._scopeCssViaAttr);
 prepElement.call(this, element);
 },
 _prepStyles: function () {
-if (this._encapsulateStyle === undefined) {
-this._encapsulateStyle = !nativeShadow && Boolean(this._template);
+if (!nativeShadow) {
+this._scopeStyle = styleUtil.applyStylePlaceHolder(this.is);
 }
+},
+_prepShimStyles: function () {
 if (this._template) {
+if (this._encapsulateStyle === undefined) {
+this._encapsulateStyle = !nativeShadow;
+}
 this._styles = this._collectStyles();
 var cssText = styleTransformer.elementStyles(this);
-if (cssText) {
-var style = styleUtil.applyCss(cssText, this.is, nativeShadow ? this._template.content : null);
-if (!nativeShadow) {
-this._scopeStyle = style;
-}
+this._prepStyleProperties();
+if (!this._needsStyleProperties() && this._styles.length) {
+styleUtil.applyCss(cssText, this.is, nativeShadow ? this._template.content : null, this._scopeStyle);
 }
 } else {
 this._styles = [];
@@ -5703,11 +5817,14 @@ var styleUtil = Polymer.StyleUtil;
 var styleTransformer = Polymer.StyleTransformer;
 return {
 decorateStyles: function (styles) {
-var self = this, props = {};
+var self = this, props = {}, keyframes = [];
 styleUtil.forRulesInStyles(styles, function (rule) {
 self.decorateRule(rule);
 self.collectPropertiesInCssText(rule.propertyInfo.cssText, props);
+}, function onKeyframesRule(rule) {
+keyframes.push(rule);
 });
+styles._keyframes = keyframes;
 var names = [];
 for (var i in props) {
 names.push(i);
@@ -5747,17 +5864,10 @@ return any;
 }
 },
 collectCssText: function (rule) {
-var customCssText = '';
-var cssText = rule.parsedCssText;
-cssText = cssText.replace(this.rx.BRACKETED, '').replace(this.rx.VAR_ASSIGN, '');
-var parts = cssText.split(';');
-for (var i = 0, p; i < parts.length; i++) {
-p = parts[i];
-if (p.match(this.rx.MIXIN_MATCH) || p.match(this.rx.VAR_MATCH)) {
-customCssText += p + ';\n';
-}
-}
-return customCssText;
+return this.collectConsumingCssText(rule.parsedCssText);
+},
+collectConsumingCssText: function (cssText) {
+return cssText.replace(this.rx.BRACKETED, '').replace(this.rx.VAR_ASSIGN, '');
 },
 collectPropertiesInCssText: function (cssText, props) {
 var m;
@@ -5799,12 +5909,13 @@ m = p.match(this.rx.MIXIN_MATCH);
 if (m) {
 p = this.valueForProperty(props[m[1]], props);
 } else {
-var pp = p.split(':');
-if (pp[1]) {
-pp[1] = pp[1].trim();
-pp[1] = this.valueForProperty(pp[1], props) || pp[1];
+var colon = p.indexOf(':');
+if (colon !== -1) {
+var pp = p.substring(colon);
+pp = pp.trim();
+pp = this.valueForProperty(pp, props) || pp;
+p = p.substring(0, colon) + pp;
 }
-p = pp.join(':');
 }
 parts[i] = p && p.lastIndexOf(';') === p.length - 1 ? p.slice(0, -1) : p || '';
 }
@@ -5818,6 +5929,34 @@ this.decorateRule(rule);
 }
 if (rule.propertyInfo.cssText) {
 output = this.valueForProperties(rule.propertyInfo.cssText, props);
+}
+rule.cssText = output;
+},
+applyKeyframeTransforms: function (rule, keyframeTransforms) {
+var input = rule.cssText;
+var output = rule.cssText;
+if (rule.hasAnimations == null) {
+rule.hasAnimations = this.rx.ANIMATION_MATCH.test(input);
+}
+if (rule.hasAnimations) {
+var transform;
+if (rule.keyframeNamesToTransform == null) {
+rule.keyframeNamesToTransform = [];
+for (var keyframe in keyframeTransforms) {
+transform = keyframeTransforms[keyframe];
+output = transform(input);
+if (input !== output) {
+input = output;
+rule.keyframeNamesToTransform.push(keyframe);
+}
+}
+} else {
+for (var i = 0; i < rule.keyframeNamesToTransform.length; ++i) {
+transform = keyframeTransforms[rule.keyframeNamesToTransform[i]];
+input = transform(input);
+}
+output = input;
+}
 }
 rule.cssText = output;
 },
@@ -5871,12 +6010,36 @@ var self = this;
 var hostSelector = styleTransformer._calcHostScope(element.is, element.extends);
 var rxHostSelector = element.extends ? '\\' + hostSelector.slice(0, -1) + '\\]' : hostSelector;
 var hostRx = new RegExp(this.rx.HOST_PREFIX + rxHostSelector + this.rx.HOST_SUFFIX);
+var keyframeTransforms = this._elementKeyframeTransforms(element, scopeSelector);
 return styleTransformer.elementStyles(element, function (rule) {
 self.applyProperties(rule, properties);
-if (rule.cssText && !nativeShadow) {
+if (!nativeShadow && !Polymer.StyleUtil.isKeyframesSelector(rule) && rule.cssText) {
+self.applyKeyframeTransforms(rule, keyframeTransforms);
 self._scopeSelector(rule, hostRx, hostSelector, element._scopeCssViaAttr, scopeSelector);
 }
 });
+},
+_elementKeyframeTransforms: function (element, scopeSelector) {
+var keyframesRules = element._styles._keyframes;
+var keyframeTransforms = {};
+if (!nativeShadow && keyframesRules) {
+for (var i = 0, keyframesRule = keyframesRules[i]; i < keyframesRules.length; keyframesRule = keyframesRules[++i]) {
+this._scopeKeyframes(keyframesRule, scopeSelector);
+keyframeTransforms[keyframesRule.keyframesName] = this._keyframesRuleTransformer(keyframesRule);
+}
+}
+return keyframeTransforms;
+},
+_keyframesRuleTransformer: function (keyframesRule) {
+return function (cssText) {
+return cssText.replace(keyframesRule.keyframesNameRx, keyframesRule.transformedKeyframesName);
+};
+},
+_scopeKeyframes: function (rule, scopeId) {
+rule.keyframesNameRx = new RegExp(rule.keyframesName, 'g');
+rule.transformedKeyframesName = rule.keyframesName + '-' + scopeId;
+rule.transformedSelector = rule.transformedSelector || rule.selector;
+rule.selector = rule.transformedSelector.replace(rule.keyframesName, rule.transformedKeyframesName);
 },
 _scopeSelector: function (rule, hostRx, hostSelector, viaAttr, scopeId) {
 rule.transformedSelector = rule.transformedSelector || rule.selector;
@@ -5884,7 +6047,7 @@ var selector = rule.transformedSelector;
 var scope = viaAttr ? '[' + styleTransformer.SCOPE_NAME + '~=' + scopeId + ']' : '.' + scopeId;
 var parts = selector.split(',');
 for (var i = 0, l = parts.length, p; i < l && (p = parts[i]); i++) {
-parts[i] = p.match(hostRx) ? p.replace(hostSelector, hostSelector + scope) : scope + ' ' + p;
+parts[i] = p.match(hostRx) ? p.replace(hostSelector, scope) : scope + ' ' + p;
 }
 rule.selector = parts.join(',');
 },
@@ -5937,8 +6100,9 @@ props[i] = v;
 rx: {
 VAR_ASSIGN: /(?:^|[;\s{]\s*)(--[\w-]*?)\s*:\s*(?:([^;{]*)|{([^}]*)})(?:(?=[;\s}])|$)/gi,
 MIXIN_MATCH: /(?:^|\W+)@apply[\s]*\(([^)]*)\)/i,
-VAR_MATCH: /(^|\W+)var\([\s]*([^,)]*)[\s]*,?[\s]*((?:[^,)]*)|(?:[^;]*\([^;)]*\)))[\s]*?\)/gi,
+VAR_MATCH: /(^|\W+)var\([\s]*([^,)]*)[\s]*,?[\s]*((?:[^,()]*)|(?:[^;()]*\([^;)]*\)))[\s]*?\)/gi,
 VAR_CAPTURE: /\([\s]*(--[^,\s)]*)(?:,[\s]*(--[^,\s)]*))?(?:\)|,)/gi,
+ANIMATION_MATCH: /(animation\s*:)|(animation-name\s*:)/,
 IS_VAR: /^--/,
 BRACKETED: /\{[^}]*\}/g,
 HOST_PREFIX: '(?:^|[^.#[:])',
@@ -6003,7 +6167,6 @@ return this._objectsEqual(target, source) && this._objectsEqual(source, target);
 }());
 Polymer.StyleDefaults = function () {
 var styleProperties = Polymer.StyleProperties;
-var styleUtil = Polymer.StyleUtil;
 var StyleCache = Polymer.StyleCache;
 var api = {
 _styles: [],
@@ -6049,12 +6212,11 @@ return api;
 var serializeValueToAttribute = Polymer.Base.serializeValueToAttribute;
 var propertyUtils = Polymer.StyleProperties;
 var styleTransformer = Polymer.StyleTransformer;
-var styleUtil = Polymer.StyleUtil;
 var styleDefaults = Polymer.StyleDefaults;
 var nativeShadow = Polymer.Settings.useNativeShadow;
 Polymer.Base._addFeature({
 _prepStyleProperties: function () {
-this._ownStylePropertyNames = this._styles ? propertyUtils.decorateStyles(this._styles) : null;
+this._ownStylePropertyNames = this._styles && this._styles.length ? propertyUtils.decorateStyles(this._styles) : null;
 },
 customStyle: null,
 getComputedStyleValue: function (property) {
@@ -6166,7 +6328,7 @@ serializeValueToAttribute.call(this, value, attribute, node);
 },
 _scopeElementClass: function (element, selector) {
 if (!nativeShadow && !this._scopeCssViaAttr) {
-selector += (selector ? ' ' : '') + SCOPE_NAME + ' ' + this.is + (element._scopeSelector ? ' ' + XSCOPE_NAME + ' ' + element._scopeSelector : '');
+selector = (selector ? selector + ' ' : '') + SCOPE_NAME + ' ' + this.is + (element._scopeSelector ? ' ' + XSCOPE_NAME + ' ' + element._scopeSelector : '');
 }
 return selector;
 },
@@ -6211,9 +6373,11 @@ Polymer.Base._addFeature({
 _registerFeatures: function () {
 this._prepIs();
 this._prepConstructor();
-this._prepTemplate();
 this._prepStyles();
-this._prepStyleProperties();
+},
+_finishRegisterFeatures: function () {
+this._prepTemplate();
+this._prepShimStyles();
 this._prepAnnotations();
 this._prepEffects();
 this._prepBehaviors();
@@ -6253,7 +6417,6 @@ this._listenListeners(b.listeners);
 }
 });
 (function () {
-var nativeShadow = Polymer.Settings.useNativeShadow;
 var propertyUtils = Polymer.StyleProperties;
 var styleUtil = Polymer.StyleUtil;
 var cssParse = Polymer.CssParse;
@@ -6295,7 +6458,7 @@ if (this.include) {
 e.textContent = styleUtil.cssFromModules(this.include, true) + e.textContent;
 }
 if (e.textContent) {
-styleUtil.forEachStyleRule(styleUtil.rulesForStyle(e), function (rule) {
+styleUtil.forEachRule(styleUtil.rulesForStyle(e), function (rule) {
 styleTransformer.documentRule(rule);
 });
 var self = this;
@@ -6400,7 +6563,7 @@ this.__setPropertyOrig(property, value, fromAbove, node);
 _debounceTemplate: function (fn) {
 Polymer.dom.addDebouncer(this.debounce('_debounceTemplate', fn));
 },
-_flushTemplates: function (debouncerExpired) {
+_flushTemplates: function () {
 Polymer.dom.flush();
 },
 _customPrepEffects: function (archetype) {
@@ -6408,7 +6571,7 @@ var parentProps = archetype._parentProps;
 for (var prop in parentProps) {
 archetype._addPropertyEffect(prop, 'function', this._createHostPropEffector(prop));
 }
-for (var prop in this._instanceProps) {
+for (prop in this._instanceProps) {
 archetype._addPropertyEffect(prop, 'function', this._createInstancePropEffector(prop));
 }
 },
@@ -6493,6 +6656,9 @@ this.dataHost._forwardInstanceProp(this, prop, value);
 },
 _extendTemplate: function (template, proto) {
 var n$ = Object.getOwnPropertyNames(proto);
+if (proto._propertySetter) {
+template._propertySetter = proto._propertySetter;
+}
 for (var i = 0, n; i < n$.length && (n = n$[i]); i++) {
 var val = template[n];
 var pd = Object.getOwnPropertyDescriptor(proto, n);
@@ -6573,7 +6739,9 @@ model = model || {};
 if (this._parentProps) {
 var templatized = this._templatized;
 for (var prop in this._parentProps) {
+if (model[prop] === undefined) {
 model[prop] = templatized[this._parentPropPrefix + prop];
+}
 }
 }
 return new this.ctor(model, this);
@@ -6706,7 +6874,7 @@ for (var j = 0; j < s.removed.length; j++) {
 key = this.getKey(s.removed[j]);
 keyMap[key] = keyMap[key] ? null : -1;
 }
-for (var j = 0; j < s.addedCount; j++) {
+for (j = 0; j < s.addedCount; j++) {
 var item = this.userArray[s.index + j];
 key = this.getKey(item);
 key = key === undefined ? this.add(item) : key;
@@ -6716,7 +6884,7 @@ s.addedKeys.push(key);
 }
 var removed = [];
 var added = [];
-for (var key in keyMap) {
+for (key in keyMap) {
 if (keyMap[key] < 0) {
 this.removeKey(key);
 removed.push(key);
@@ -6913,7 +7081,6 @@ this._debounceTemplate(this._render);
 this._flushTemplates();
 },
 _render: function () {
-var c = this.collection;
 if (this._needFullRefresh) {
 this._applyFullRefresh();
 this._needFullRefresh = false;
@@ -6974,7 +7141,7 @@ keys.sort(function (a, b) {
 return self._sortFn(c.getItem(a), c.getItem(b));
 });
 }
-for (var i = 0; i < keys.length; i++) {
+for (i = 0; i < keys.length; i++) {
 var key = keys[i];
 var inst = this._instances[i];
 if (inst) {
@@ -6997,21 +7164,21 @@ return a - b;
 },
 _applySplicesUserSort: function (splices) {
 var c = this.collection;
-var instances = this._instances;
 var keyMap = {};
+var key;
 for (var i = 0, s; i < splices.length && (s = splices[i]); i++) {
 for (var j = 0; j < s.removed.length; j++) {
-var key = s.removed[j];
+key = s.removed[j];
 keyMap[key] = keyMap[key] ? null : -1;
 }
-for (var j = 0; j < s.added.length; j++) {
-var key = s.added[j];
+for (j = 0; j < s.added.length; j++) {
+key = s.added[j];
 keyMap[key] = keyMap[key] ? null : 1;
 }
 }
 var removedIdxs = [];
 var addedKeys = [];
-for (var key in keyMap) {
+for (key in keyMap) {
 if (keyMap[key] === -1) {
 removedIdxs.push(this._keyToInstIdx[key]);
 }
@@ -7021,7 +7188,7 @@ addedKeys.push(key);
 }
 if (removedIdxs.length) {
 removedIdxs.sort(this._numericSort);
-for (var i = removedIdxs.length - 1; i >= 0; i--) {
+for (i = removedIdxs.length - 1; i >= 0; i--) {
 var idx = removedIdxs[i];
 if (idx !== undefined) {
 this._detachAndRemoveInstance(idx);
@@ -7039,7 +7206,7 @@ addedKeys.sort(function (a, b) {
 return self._sortFn(c.getItem(a), c.getItem(b));
 });
 var start = 0;
-for (var i = 0; i < addedKeys.length; i++) {
+for (i = 0; i < addedKeys.length; i++) {
 start = this._insertRowUserSort(start, addedKeys[i]);
 }
 }
@@ -7069,12 +7236,11 @@ this._insertPlaceholder(idx, key);
 return idx;
 },
 _applySplicesArrayOrder: function (splices) {
-var c = this.collection;
 for (var i = 0, s; i < splices.length && (s = splices[i]); i++) {
 for (var j = 0; j < s.removed.length; j++) {
 this._detachAndRemoveInstance(s.index);
 }
-for (var j = 0; j < s.addedKeys.length; j++) {
+for (j = 0; j < s.addedKeys.length; j++) {
 this._insertPlaceholder(s.index + j, s.addedKeys[j]);
 }
 }
@@ -7407,7 +7573,13 @@ _template: null,
 created: function () {
 var self = this;
 Polymer.RenderStatus.whenReady(function () {
+if (document.readyState == 'loading') {
+document.addEventListener('DOMContentLoaded', function () {
 self._markImportsReady();
+});
+} else {
+self._markImportsReady();
+}
 });
 },
 _ensureReady: function () {
@@ -7651,6 +7823,12 @@ this.fire('dom-change');
       align-items: flex-end;
     };
 
+    --layout-baseline: {
+      -ms-flex-align: baseline;
+      -webkit-align-items: baseline;
+      align-items: baseline;
+    };
+
     /* alignment in main axis */
 
     --layout-start-justified: {
@@ -7712,6 +7890,49 @@ this.fire('dom-change');
       -ms-align-self: stretch;
       -webkit-align-self: stretch;
       align-self: stretch;
+    };
+
+    --layout-self-baseline: {
+      -ms-align-self: baseline;
+      -webkit-align-self: baseline;
+      align-self: baseline;
+    };
+
+    /* multi-line alignment in main axis */
+
+    --layout-start-aligned: {
+      -ms-flex-line-pack: start;  /* IE10 */
+      -ms-align-content: flex-start;
+      -webkit-align-content: flex-start;
+      align-content: flex-start;
+    };
+
+    --layout-end-aligned: {
+      -ms-flex-line-pack: end;  /* IE10 */
+      -ms-align-content: flex-end;
+      -webkit-align-content: flex-end;
+      align-content: flex-end;
+    };
+
+    --layout-center-aligned: {
+      -ms-flex-line-pack: center;  /* IE10 */
+      -ms-align-content: center;
+      -webkit-align-content: center;
+      align-content: center;
+    };
+
+    --layout-between-aligned: {
+      -ms-flex-line-pack: justify;  /* IE10 */
+      -ms-align-content: space-between;
+      -webkit-align-content: space-between;
+      align-content: space-between;
+    };
+
+    --layout-around-aligned: {
+      -ms-flex-line-pack: distribute;  /* IE10 */
+      -ms-align-content: space-around;
+      -webkit-align-content: space-around;
+      align-content: space-around;
     };
 
     /*******************************
@@ -8126,7 +8347,8 @@ this.fire('dom-change');
          * @type {!Polymer.IronMeta}
          */
         _meta: {
-          value: Polymer.Base.create('iron-meta', {type: 'iconset'})
+          value: Polymer.Base.create('iron-meta', {type: 'iconset'}),
+          observer: '_updateIcon'
         }
 
       },
@@ -8151,7 +8373,14 @@ this.fire('dom-change');
       /** @suppress {visibility} */
       _updateIcon: function() {
         if (this._usesIconset()) {
-          if (this._iconsetName) {
+          if (this._img && this._img.parentNode) {
+            Polymer.dom(this.root).removeChild(this._img);
+          }
+          if (this._iconName === "") {
+            if (this._iconset) {
+              this._iconset.removeIcon(this);
+            }
+          } else if (this._iconsetName && this._meta) {
             this._iconset = /** @type {?Polymer.Iconset} */ (
               this._meta.byKey(this._iconsetName));
             if (this._iconset) {
@@ -8162,6 +8391,9 @@ this.fire('dom-change');
             }
           }
         } else {
+          if (this._iconset) {
+            this._iconset.removeIcon(this);
+          }
           if (!this._img) {
             this._img = document.createElement('img');
             this._img.style.width = '100%';
@@ -8904,16 +9136,19 @@ this.fire('dom-change');
      */
     setItemSelected: function(item, isSelected) {
       if (item != null) {
-        if (isSelected) {
-          this.selection.push(item);
-        } else {
-          var i = this.selection.indexOf(item);
-          if (i >= 0) {
-            this.selection.splice(i, 1);
+        if (isSelected !== this.isSelected(item)) {
+          // proceed to update selection only if requested state differs from current
+          if (isSelected) {
+            this.selection.push(item);
+          } else {
+            var i = this.selection.indexOf(item);
+            if (i >= 0) {
+              this.selection.splice(i, 1);
+            }
           }
-        }
-        if (this.selectCallback) {
-          this.selectCallback(item, isSelected);
+          if (this.selectCallback) {
+            this.selectCallback(item, isSelected);
+          }
         }
       }
     },
@@ -8984,8 +9219,14 @@ this.fire('dom-change');
     properties: {
 
       /**
-       * If you want to use the attribute value of an element for `selected` instead of the index,
-       * set this to the name of the attribute.
+       * If you want to use an attribute value or property of an element for
+       * `selected` instead of the index, set this to the name of the attribute
+       * or property. Hyphenated values are converted to camel case when used to
+       * look up the property of a selectable element. Camel cased values are
+       * *not* converted to hyphenated values for attribute lookup. It's
+       * recommended that you provide the hyphenated form of the name so that
+       * selection works in both cases. (Use `attr-or-property-name` instead of
+       * `attrOrPropertyName`.)
        */
       attrForSelected: {
         type: String,
@@ -9046,6 +9287,15 @@ this.fire('dom-change');
       },
 
       /**
+       * Default fallback if the selection based on selected with `attrForSelected`
+       * is not found.
+       */
+      fallbackSelection: {
+        type: String,
+        value: null
+      },
+
+      /**
        * The list of items from which a selection can be made.
        */
       items: {
@@ -9074,7 +9324,9 @@ this.fire('dom-change');
     },
 
     observers: [
-      '_updateSelected(attrForSelected, selected)'
+      '_updateAttrForSelected(attrForSelected)',
+      '_updateSelected(selected)',
+      '_checkFallback(fallbackSelection)'
     ],
 
     created: function() {
@@ -9086,7 +9338,7 @@ this.fire('dom-change');
       this._observer = this._observeItems(this);
       this._updateItems();
       if (!this._shouldUpdateSelection) {
-        this._updateSelected(this.attrForSelected,this.selected)
+        this._updateSelected();
       }
       this._addListener(this.activateEvent);
     },
@@ -9141,6 +9393,15 @@ this.fire('dom-change');
     },
 
     /**
+     * Selects the item at the given index.
+     *
+     * @method selectIndex
+     */
+    selectIndex: function(index) {
+      this.select(this._indexToValue(index));
+    },
+
+    /**
      * Force a synchronous update of the `items` property.
      *
      * NOTE: Consider listening for the `iron-items-changed` event to respond to
@@ -9158,6 +9419,12 @@ this.fire('dom-change');
 
     get _shouldUpdateSelection() {
       return this.selected != null;
+    },
+
+    _checkFallback: function() {
+      if (this._shouldUpdateSelection) {
+        this._updateSelected();
+      }
     },
 
     _addListener: function(eventName) {
@@ -9179,12 +9446,23 @@ this.fire('dom-change');
       this._setItems(nodes);
     },
 
+    _updateAttrForSelected: function() {
+      if (this._shouldUpdateSelection) {
+        this.selected = this._indexToValue(this.indexOf(this.selectedItem));
+      }
+    },
+
     _updateSelected: function() {
       this._selectSelected(this.selected);
     },
 
     _selectSelected: function(selected) {
       this._selection.select(this._valueToItem(this.selected));
+      // Check for items, since this array is populated only when attached
+      // Since Number(0) is falsy, explicitly check for undefined
+      if (this.fallbackSelection && this.items.length && (this._selection.get() === undefined)) {
+        this.selected = this.fallbackSelection;
+      }
     },
 
     _filterItem: function(node) {
@@ -9219,7 +9497,7 @@ this.fire('dom-change');
     },
 
     _valueForItem: function(item) {
-      var propValue = item[this.attrForSelected];
+      var propValue = item[Polymer.CaseMap.dashToCamelCase(this.attrForSelected)];
       return propValue != undefined ? propValue : item.getAttribute(this.attrForSelected);
     },
 
@@ -9248,7 +9526,7 @@ this.fire('dom-change');
         }
 
         // Let other interested parties know about the change so that
-        // we don't have to recreate mutation observers everywher.
+        // we don't have to recreate mutation observers everywhere.
         this.fire('iron-items-changed', mutations, {
           bubbles: false,
           cancelable: false
@@ -9367,7 +9645,7 @@ this.fire('dom-change');
     },
 
     observers: [
-      '_updateSelected(attrForSelected, selectedValues)'
+      '_updateSelected(selectedValues.splices)'
     ],
 
     /**
@@ -9398,6 +9676,18 @@ this.fire('dom-change');
         (this.selectedValues != null && this.selectedValues.length);
     },
 
+    _updateAttrForSelected: function() {
+      if (!this.multi) {
+        Polymer.IronSelectableBehavior._updateAttrForSelected.apply(this);
+      } else if (this._shouldUpdateSelection) {
+        this.selectedValues = this.selectedItems.map(function(selectedItem) {
+          return this._indexToValue(this.indexOf(selectedItem));
+        }, this).filter(function(unfilteredValue) {
+          return unfilteredValue != null;
+        }, this);
+      }
+    },
+
     _updateSelected: function() {
       if (this.multi) {
         this._selectMulti(this.selectedValues);
@@ -9407,11 +9697,23 @@ this.fire('dom-change');
     },
 
     _selectMulti: function(values) {
-      this._selection.clear();
       if (values) {
-        for (var i = 0; i < values.length; i++) {
-          this._selection.setItemSelected(this._valueToItem(values[i]), true);
+        var selectedItems = this._valuesToItems(values);
+        // clear all but the current selected items
+        this._selection.clear(selectedItems);
+        // select only those not selected yet
+        for (var i = 0; i < selectedItems.length; i++) {
+          this._selection.setItemSelected(selectedItems[i], true);
         }
+        // Check for items, since this array is populated only when attached
+        if (this.fallbackSelection && this.items.length && !this._selection.get().length) {
+          var fallback = this._valueToItem(this.fallbackSelection);
+          if (fallback) {
+            this.selectedValues = [this.fallbackSelection];
+          }
+        }
+      } else {
+        this._selection.clear();
       }
     },
 
@@ -9433,7 +9735,12 @@ this.fire('dom-change');
       } else {
         this.splice('selectedValues',i,1);
       }
-      this._selection.setItemSelected(this._valueToItem(value), unselected);
+    },
+
+    _valuesToItems: function(values) {
+      return (values == null) ? null : values.map(function(value) {
+        return this._valueToItem(value);
+      }, this);
     }
   };
 
@@ -9469,6 +9776,21 @@ this.fire('dom-change');
         <div name="bar">Bar</div>
         <div name="zot">Zot</div>
       </iron-selector>
+
+  You can specify a default fallback with `fallbackSelection` in case the `selected` attribute does
+  not match the `attrForSelected` attribute of any elements.
+
+  Example:
+
+        <iron-selector attr-for-selected="name" selected="non-existing"
+                       fallback-selection="default">
+          <div name="foo">Foo</div>
+          <div name="bar">Bar</div>
+          <div name="default">Default</div>
+        </iron-selector>
+
+  Note: When the selector is multi, the selection will set to `fallbackSelection` iff
+  the number of matching elements is zero.
 
   `iron-selector` is not styled. Use the `iron-selected` CSS class to style the selected element.
 
@@ -9703,6 +10025,8 @@ this.fire('dom-change');
       }
 
       .left-drawer.narrow-layout > #drawer:not(.iron-selected) {
+        visibility: hidden;
+
         -webkit-transform: translateX(-100%);
         transform: translateX(-100%);
       }
@@ -9715,8 +10039,10 @@ this.fire('dom-change');
         transform: translateX(100%);
       }
 
-      .right-drawer.narrow-layout.dragging > #drawer:not(.iron-selected),
-      .right-drawer.narrow-layout.peeking > #drawer:not(.iron-selected) {
+      .left-drawer.dragging > #drawer:not(.iron-selected),
+      .left-drawer.peeking > #drawer:not(.iron-selected),
+      .right-drawer.dragging > #drawer:not(.iron-selected),
+      .right-drawer.peeking > #drawer:not(.iron-selected) {
         visibility: visible;
       }
 
@@ -9745,7 +10071,7 @@ this.fire('dom-change');
         box-sizing: border-box;
       }
 
-      iron-selector:not(.narrow-layout) #main ::content [paper-drawer-toggle] {
+      iron-selector:not(.narrow-layout) ::content [paper-drawer-toggle] {
         display: none;
       }
     </style>
@@ -9755,13 +10081,13 @@ this.fire('dom-change');
 
     <iron-selector attr-for-selected="id" class$="[[_computeIronSelectorClass(narrow, _transition, dragging, rightDrawer, peeking)]]" activate-event="" selected="[[selected]]">
 
-      <div id="main" style$="[[_computeMainStyle(narrow, rightDrawer, drawerWidth)]]" on-transitionend="_onMainTransitionEnd">
+      <div id="main" style$="[[_computeMainStyle(narrow, rightDrawer, drawerWidth)]]">
         <content select="[main]"></content>
         <div id="scrim" on-tap="closeDrawer"></div>
       </div>
 
       <div id="drawer" style$="[[_computeDrawerStyle(drawerWidth)]]">
-        <content select="[drawer]"></content>
+        <content id="drawerContent" select="[drawer]"></content>
       </div>
 
     </iron-selector>
@@ -9941,6 +10267,8 @@ this.fire('dom-change');
           /**
            * The panel that is being selected. `drawer` for the drawer panel and
            * `main` for the main panel.
+           *
+           * @type {string|null}
            */
           selected: {
             reflectToAttribute: true,
@@ -9959,6 +10287,28 @@ this.fire('dom-change');
           },
 
           /**
+           * The CSS selector for the element that should receive focus when the drawer is open.
+           * By default, when the drawer opens, it focuses the first tabbable element. That is,
+           * the first element that can receive focus.
+           *
+           * To disable this behavior, you can set `drawerFocusSelector` to `null` or an empty string.
+           *
+           */
+          drawerFocusSelector: {
+            type: String,
+            value:
+                'a[href]:not([tabindex="-1"]),'+
+                'area[href]:not([tabindex="-1"]),'+
+                'input:not([disabled]):not([tabindex="-1"]),'+
+                'select:not([disabled]):not([tabindex="-1"]),'+
+                'textarea:not([disabled]):not([tabindex="-1"]),'+
+                'button:not([disabled]):not([tabindex="-1"]),'+
+                'iframe:not([tabindex="-1"]),'+
+                '[tabindex]:not([tabindex="-1"]),'+
+                '[contentEditable=true]:not([tabindex="-1"])'
+          },
+
+          /**
            * Whether the transition is enabled.
            */
           _transition: {
@@ -9972,12 +10322,21 @@ this.fire('dom-change');
           tap: '_onTap',
           track: '_onTrack',
           down: '_downHandler',
-          up: '_upHandler'
+          up: '_upHandler',
+          transitionend: '_onTransitionEnd'
         },
 
         observers: [
-          '_forceNarrowChanged(forceNarrow, defaultSelected)'
+          '_forceNarrowChanged(forceNarrow, defaultSelected)',
+          '_toggleFocusListener(selected)'
         ],
+
+        ready: function() {
+          // Avoid transition at the beginning e.g. page loads and enable
+          // transitions only after the element is rendered and ready.
+          this._transition = true;
+          this._boundFocusListener = this._didFocus.bind(this);
+        },
 
         /**
          * Toggles the panel open and closed.
@@ -10010,15 +10369,18 @@ this.fire('dom-change');
           this.selected = 'main';
         },
 
-        ready: function() {
-          // Avoid transition at the beginning e.g. page loads and enable
-          // transitions only after the element is rendered and ready.
-          this._transition = true;
-        },
-
-        _onMainTransitionEnd: function (e) {
-          if (e.currentTarget === this.$.main && (e.propertyName === 'left' || e.propertyName === 'right')) {
+        _onTransitionEnd: function (e) {
+          var target = Polymer.dom(e).localTarget;
+          if (target !== this) {
+            // ignore events coming from the light dom
+            return;
+          }
+          if (e.propertyName === 'left' || e.propertyName === 'right') {
             this.notifyResize();
+          }
+          if (e.propertyName === 'transform' && this.selected === 'drawer') {
+            var focusedChild = this._getAutoFocusedNode();
+            focusedChild && focusedChild.focus();
           }
         },
 
@@ -10072,15 +10434,12 @@ this.fire('dom-change');
               this._trackEnd(event);
               break;
           }
-
         },
 
         _responsiveChange: function(narrow) {
           this._setNarrow(narrow);
 
-          if (this.narrow) {
-            this.selected = this.defaultSelected;
-          }
+          this.selected = this.narrow ? this.defaultSelected : null;
 
           this.setScrollDirection(this._swipeAllowed() ? 'y' : 'all');
           this.fire('paper-responsive-change', {narrow: this.narrow});
@@ -10216,76 +10575,58 @@ this.fire('dom-change');
           if (translateX === null) {
             return '';
           }
-
           return this.hasWillChange ? 'translateX(' + translateX + 'px)' :
               'translate3d(' + translateX + 'px, 0, 0)';
         },
 
         _moveDrawer: function(translateX) {
           this.transform(this._transformForTranslateX(translateX), this.$.drawer);
-        }
+        },
 
+        _getDrawerContent: function() {
+          return Polymer.dom(this.$.drawerContent).getDistributedNodes()[0];
+        },
+
+        _getAutoFocusedNode: function() {
+          var drawerContent = this._getDrawerContent();
+
+          return this.drawerFocusSelector ? 
+              Polymer.dom(drawerContent).querySelector(this.drawerFocusSelector) || drawerContent : null;
+        },
+
+        _toggleFocusListener: function(selected) {
+          if (selected === 'drawer') {
+            this.addEventListener('focus', this._boundFocusListener, true);
+          } else {
+            this.removeEventListener('focus', this._boundFocusListener, true);
+          }
+        },
+
+        _didFocus: function(event) {
+          var autoFocusedNode = this._getAutoFocusedNode();
+          if (!autoFocusedNode) {
+            return;
+          }
+
+          var path = Polymer.dom(event).path;
+          var focusedChild = path[0];
+          var drawerContent = this._getDrawerContent();
+          var focusedChildCameFromDrawer = path.indexOf(drawerContent) !== -1;
+
+          if (!focusedChildCameFromDrawer) {
+            event.stopPropagation();
+            autoFocusedNode.focus();
+          }
+        },
+
+        _isDrawerClosed: function(narrow, selected) {
+          return !narrow || selected !== 'drawer';
+        }
       });
+
     }());
   </script>
 </dom-module>
-
-
-<style is="custom-style">
-
-  :root {
-    /*
-     * You can use these generic variables in your elements for easy theming.
-     * For example, if all your elements use `--primary-text-color` as its main
-     * color, then switching from a light to a dark theme is just a matter of
-     * changing the value of `--primary-text-color` in your application.
-     */
-    --primary-text-color: var(--light-theme-text-color);
-    --primary-background-color: var(--light-theme-background-color);
-    --secondary-text-color: var(--light-theme-secondary-color);
-    --disabled-text-color: var(--light-theme-disabled-color);
-    --divider-color: var(--light-theme-divider-color);
-
-    /*
-     * Primary and accent colors. Also see color.html for more colors.
-     */
-    --primary-color: #3f51b5;  /* --paper-indigo-500 */
-    --light-primary-color: #c5cae9;  /* --paper-indigo-100 */
-    --dark-primary-color: #303f9f;  /* --paper-indigo-700 */
-
-    --accent-color: #ff4081;  /* --paper-pink-a200 */
-    --light-accent-color: #ff80ab;  /* --paper-pink-a100 */
-    --dark-accent-color: #f50057;  /* --paper-pink-a400 */
-
-    /*
-     * Material Design Light background theme
-     */
-    --light-theme-background-color: #ffffff;
-    --light-theme-base-color: #000000;
-    --light-theme-text-color: #212121;
-    --light-theme-secondary-color: #737373;  /* for secondary text and icons */
-    --light-theme-disabled-color: #9b9b9b;  /* disabled/hint text */
-    --light-theme-divider-color: #dbdbdb;
-
-    /*
-     * Material Design Dark background theme
-     */
-    --dark-theme-background-color: #212121;
-    --dark-theme-base-color: #ffffff;
-    --dark-theme-text-color: #ffffff;
-    --dark-theme-secondary-color: #bcbcbc;  /* for secondary text and icons */
-    --dark-theme-disabled-color: #646464;  /* disabled/hint text */
-    --dark-theme-divider-color: #3c3c3c;
-
-    /*
-     * Deprecated values because of their confusing names.
-     */
-    --text-primary-color: var(--dark-theme-text-color);
-    --default-primary-color: var(--primary-color);
-
-  }
-
-</style>
 <script>
   (function() {
     'use strict';
@@ -10367,6 +10708,13 @@ this.fire('dom-change');
     var SPACE_KEY = /^space(bar)?/;
 
     /**
+     * Matches ESC key.
+     *
+     * Value from: http://w3c.github.io/uievents-key/#key-Escape
+     */
+    var ESC_KEY = /^escape$/;
+
+    /**
      * Transforms the key.
      * @param {string} key The KeyBoardEvent.key
      * @param {Boolean} [noSpecialChars] Limits the transformation to
@@ -10378,6 +10726,8 @@ this.fire('dom-change');
         var lKey = key.toLowerCase();
         if (lKey === ' ' || SPACE_KEY.test(lKey)) {
           validKey = 'space';
+        } else if (ESC_KEY.test(lKey)) {
+          validKey = 'esc';
         } else if (lKey.length == 1) {
           if (!noSpecialChars || KEY_CHAR.test(lKey)) {
             validKey = lKey;
@@ -10421,10 +10771,10 @@ this.fire('dom-change');
           validKey = 'f' + (keyCode - 112);
         } else if (keyCode >= 48 && keyCode <= 57) {
           // top 0-9 keys
-          validKey = String(48 - keyCode);
+          validKey = String(keyCode - 48);
         } else if (keyCode >= 96 && keyCode <= 105) {
           // num pad 0-9
-          validKey = String(96 - keyCode);
+          validKey = String(keyCode - 96);
         } else {
           validKey = KEY_CODE[keyCode];
         }
@@ -10589,6 +10939,13 @@ this.fire('dom-change');
         this._resetKeyEventListeners();
       },
 
+      /**
+       * Returns true if a keyboard event matches `eventString`.
+       *
+       * @param {KeyboardEvent} event
+       * @param {string} eventString
+       * @return {boolean}
+       */
       keyboardEventMatchesKeys: function(event, eventString) {
         var keyCombos = parseEventString(eventString);
         for (var i = 0; i < keyCombos.length; ++i) {
@@ -10783,7 +11140,8 @@ this.fire('dom-change');
 
       if (event.target === this) {
         this._setFocused(event.type === 'focus');
-      } else if (!this.shadowRoot && !this.isLightDescendant(event.target)) {
+      } else if (!this.shadowRoot &&
+          !this.isLightDescendant(Polymer.dom(event).localTarget)) {
         this.fire(event.type, {sourceEvent: event}, {
           node: this,
           bubbles: event.bubbles,
@@ -10797,8 +11155,9 @@ this.fire('dom-change');
       this.style.pointerEvents = disabled ? 'none' : '';
       if (disabled) {
         this._oldTabIndex = this.tabIndex;
-        this.focused = false;
+        this._setFocused(false);
         this.tabIndex = -1;
+        this.blur();
       } else if (this._oldTabIndex !== undefined) {
         this.tabIndex = this._oldTabIndex;
       }
@@ -11824,95 +12183,6 @@ this.fire('dom-change');
 </script>
 <script>
 
-  /** @polymerBehavior Polymer.PaperButtonBehavior */
-  Polymer.PaperButtonBehaviorImpl = {
-
-    properties: {
-
-      /**
-       * The z-depth of this element, from 0-5. Setting to 0 will remove the
-       * shadow, and each increasing number greater than 0 will be "deeper"
-       * than the last.
-       *
-       * @attribute elevation
-       * @type number
-       * @default 1
-       */
-      elevation: {
-        type: Number,
-        reflectToAttribute: true,
-        readOnly: true
-      }
-
-    },
-
-    observers: [
-      '_calculateElevation(focused, disabled, active, pressed, receivedFocusFromKeyboard)',
-      '_computeKeyboardClass(receivedFocusFromKeyboard)'
-    ],
-
-    hostAttributes: {
-      role: 'button',
-      tabindex: '0',
-      animated: true
-    },
-
-    _calculateElevation: function() {
-      var e = 1;
-      if (this.disabled) {
-        e = 0;
-      } else if (this.active || this.pressed) {
-        e = 4;
-      } else if (this.receivedFocusFromKeyboard) {
-        e = 3;
-      }
-      this._setElevation(e);
-    },
-
-    _computeKeyboardClass: function(receivedFocusFromKeyboard) {
-      this.toggleClass('keyboard-focus', receivedFocusFromKeyboard);
-    },
-
-    /**
-     * In addition to `IronButtonState` behavior, when space key goes down,
-     * create a ripple down effect.
-     *
-     * @param {!KeyboardEvent} event .
-     */
-    _spaceKeyDownHandler: function(event) {
-      Polymer.IronButtonStateImpl._spaceKeyDownHandler.call(this, event);
-      // Ensure that there is at most one ripple when the space key is held down.
-      if (this.hasRipple() && this.getRipple().ripples.length < 1) {
-        this._ripple.uiDownAction();
-      }
-    },
-
-    /**
-     * In addition to `IronButtonState` behavior, when space key goes up,
-     * create a ripple up effect.
-     *
-     * @param {!KeyboardEvent} event .
-     */
-    _spaceKeyUpHandler: function(event) {
-      Polymer.IronButtonStateImpl._spaceKeyUpHandler.call(this, event);
-      if (this.hasRipple()) {
-        this._ripple.uiUpAction();
-      }
-    }
-
-  };
-
-  /** @polymerBehavior */
-  Polymer.PaperButtonBehavior = [
-    Polymer.IronButtonState,
-    Polymer.IronControlState,
-    Polymer.PaperRippleBehavior,
-    Polymer.PaperButtonBehaviorImpl
-  ];
-
-</script>
-<script>
-
   /**
    * `Polymer.PaperInkyFocusBehavior` implements a ripple when the element has keyboard focus.
    *
@@ -11951,126 +12221,6 @@ this.fire('dom-change');
     Polymer.PaperInkyFocusBehaviorImpl
   ];
 
-</script>
-
-
-<dom-module id="paper-icon-button" assetpath="../bower_components/paper-icon-button/">
-  <template strip-whitespace="">
-    <style>
-      :host {
-        display: inline-block;
-        position: relative;
-        padding: 8px;
-        outline: none;
-        -webkit-tap-highlight-color: rgba(0,0,0,0);
-        -webkit-user-select: none;
-        -moz-user-select: none;
-        -ms-user-select: none;
-        user-select: none;
-        cursor: pointer;
-        z-index: 0;
-        line-height: 1;
-        
-        width: 40px;
-        height: 40px;
-
-        /* Because of polymer/2558, this style has lower specificity than * */
-        box-sizing: border-box !important;
-        @apply(--paper-icon-button);
-      }
-
-      :host #ink {
-        color: var(--paper-icon-button-ink-color, --primary-text-color);
-        opacity: 0.6;
-      }
-
-      :host([disabled]) {
-        color: var(--paper-icon-button-disabled-text, --disabled-text-color);
-        pointer-events: none;
-        cursor: auto;
-        @apply(--paper-icon-button-disabled);
-      }
-      
-      :host(:hover) { 
-        @apply(--paper-icon-button-hover);
-      }
-
-      iron-icon {
-        --iron-icon-width: 100%;
-        --iron-icon-height: 100%;
-      }
-    </style>
-    <iron-icon id="icon" src="[[src]]" icon="[[icon]]" alt$="[[alt]]"></iron-icon>
-  </template>
-
-  <script>
-    Polymer({
-      is: 'paper-icon-button',
-
-      hostAttributes: {
-        role: 'button',
-        tabindex: '0'
-      },
-
-      behaviors: [
-        Polymer.PaperInkyFocusBehavior
-      ],
-
-      properties: {
-        /**
-         * The URL of an image for the icon. If the src property is specified,
-         * the icon property should not be.
-         */
-        src: {
-          type: String
-        },
-
-        /**
-         * Specifies the icon name or index in the set of icons available in
-         * the icon's icon set. If the icon property is specified,
-         * the src property should not be.
-         */
-        icon: {
-          type: String
-        },
-
-        /**
-         * Specifies the alternate text for the button, for accessibility.
-         */
-        alt: {
-          type: String,
-          observer: "_altChanged"
-        }
-      },
-
-      _altChanged: function(newValue, oldValue) {
-        var label = this.getAttribute('aria-label');
-
-        // Don't stomp over a user-set aria-label.
-        if (!label || oldValue == label) {
-          this.setAttribute('aria-label', newValue);
-        }
-      }
-    });
-  </script>
-</dom-module>
-
-
-<script>
-  /** @polymerBehavior Polymer.PaperItemBehavior */
-  Polymer.PaperItemBehaviorImpl = {
-    hostAttributes: {
-      role: 'option',
-      tabindex: '0'
-    }
-  };
-
-  /** @polymerBehavior */
-  Polymer.PaperItemBehavior = [
-    Polymer.IronButtonState,
-    Polymer.IronControlState,
-    Polymer.PaperItemBehaviorImpl
-  ];
 </script>
 <style is="custom-style">
 
@@ -12393,40 +12543,389 @@ this.fire('dom-change');
   }
 
 </style>
+
+
+<style is="custom-style">
+
+  :root {
+    /*
+     * You can use these generic variables in your elements for easy theming.
+     * For example, if all your elements use `--primary-text-color` as its main
+     * color, then switching from a light to a dark theme is just a matter of
+     * changing the value of `--primary-text-color` in your application.
+     */
+    --primary-text-color: var(--light-theme-text-color);
+    --primary-background-color: var(--light-theme-background-color);
+    --secondary-text-color: var(--light-theme-secondary-color);
+    --disabled-text-color: var(--light-theme-disabled-color);
+    --divider-color: var(--light-theme-divider-color);
+    --error-color: var(--paper-deep-orange-a700);
+
+    /*
+     * Primary and accent colors. Also see color.html for more colors.
+     */
+    --primary-color: var(--paper-indigo-500);
+    --light-primary-color: var(--paper-indigo-100);
+    --dark-primary-color: var(--paper-indigo-700);
+
+    --accent-color: var(--paper-pink-a200);
+    --light-accent-color: var(--paper-pink-a100);
+    --dark-accent-color: var(--paper-pink-a400);
+
+
+    /*
+     * Material Design Light background theme
+     */
+    --light-theme-background-color: #ffffff;
+    --light-theme-base-color: #000000;
+    --light-theme-text-color: var(--paper-grey-900);
+    --light-theme-secondary-color: #737373;  /* for secondary text and icons */
+    --light-theme-disabled-color: #9b9b9b;  /* disabled/hint text */
+    --light-theme-divider-color: #dbdbdb;
+
+    /*
+     * Material Design Dark background theme
+     */
+    --dark-theme-background-color: var(--paper-grey-900);
+    --dark-theme-base-color: #ffffff;
+    --dark-theme-text-color: #ffffff;
+    --dark-theme-secondary-color: #bcbcbc;  /* for secondary text and icons */
+    --dark-theme-disabled-color: #646464;  /* disabled/hint text */
+    --dark-theme-divider-color: #3c3c3c;
+
+    /*
+     * Deprecated values because of their confusing names.
+     */
+    --text-primary-color: var(--dark-theme-text-color);
+    --default-primary-color: var(--primary-color);
+
+  }
+
+</style>
+
+
+<dom-module id="paper-icon-button" assetpath="../bower_components/paper-icon-button/">
+  <template strip-whitespace="">
+    <style>
+      :host {
+        display: inline-block;
+        position: relative;
+        padding: 8px;
+        outline: none;
+        -webkit-tap-highlight-color: rgba(0,0,0,0);
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
+        cursor: pointer;
+        z-index: 0;
+        line-height: 1;
+
+        width: 40px;
+        height: 40px;
+
+        /* Because of polymer/2558, this style has lower specificity than * */
+        box-sizing: border-box !important;
+
+        @apply(--paper-icon-button);
+      }
+
+      :host #ink {
+        color: var(--paper-icon-button-ink-color, --primary-text-color);
+        opacity: 0.6;
+      }
+
+      :host([disabled]) {
+        color: var(--paper-icon-button-disabled-text, --disabled-text-color);
+        pointer-events: none;
+        cursor: auto;
+
+        @apply(--paper-icon-button-disabled);
+      }
+
+      :host(:hover) {
+        @apply(--paper-icon-button-hover);
+      }
+
+      iron-icon {
+        --iron-icon-width: 100%;
+        --iron-icon-height: 100%;
+      }
+    </style>
+
+    <iron-icon id="icon" src="[[src]]" icon="[[icon]]" alt$="[[alt]]"></iron-icon>
+  </template>
+
+  <script>
+    Polymer({
+      is: 'paper-icon-button',
+
+      hostAttributes: {
+        role: 'button',
+        tabindex: '0'
+      },
+
+      behaviors: [
+        Polymer.PaperInkyFocusBehavior
+      ],
+
+      properties: {
+        /**
+         * The URL of an image for the icon. If the src property is specified,
+         * the icon property should not be.
+         */
+        src: {
+          type: String
+        },
+
+        /**
+         * Specifies the icon name or index in the set of icons available in
+         * the icon's icon set. If the icon property is specified,
+         * the src property should not be.
+         */
+        icon: {
+          type: String
+        },
+
+        /**
+         * Specifies the alternate text for the button, for accessibility.
+         */
+        alt: {
+          type: String,
+          observer: "_altChanged"
+        }
+      },
+
+      _altChanged: function(newValue, oldValue) {
+        var label = this.getAttribute('aria-label');
+
+        // Don't stomp over a user-set aria-label.
+        if (!label || oldValue == label) {
+          this.setAttribute('aria-label', newValue);
+        }
+      }
+    });
+  </script>
+</dom-module>
+
+
+<script>
+  /** @polymerBehavior Polymer.PaperItemBehavior */
+  Polymer.PaperItemBehaviorImpl = {
+    hostAttributes: {
+      role: 'option',
+      tabindex: '0'
+    }
+  };
+
+  /** @polymerBehavior */
+  Polymer.PaperItemBehavior = [
+    Polymer.IronButtonState,
+    Polymer.IronControlState,
+    Polymer.PaperItemBehaviorImpl
+  ];
+</script>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:400,300,300italic,400italic,500,500italic,700,700italic">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto+Mono:400,700">
+<style is="custom-style">
+
+  :root {
+
+    /* Shared Styles */
+    --paper-font-common-base: {
+      font-family: 'Roboto', 'Noto', sans-serif;
+      -webkit-font-smoothing: antialiased;
+    };
+
+    --paper-font-common-code: {
+      font-family: 'Roboto Mono', 'Consolas', 'Menlo', monospace;
+      -webkit-font-smoothing: antialiased;
+    };
+
+    --paper-font-common-expensive-kerning: {
+      text-rendering: optimizeLegibility;
+    };
+
+    --paper-font-common-nowrap: {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    };
+
+    /* Material Font Styles */
+
+    --paper-font-display4: {
+      @apply(--paper-font-common-base);
+      @apply(--paper-font-common-nowrap);
+
+      font-size: 112px;
+      font-weight: 300;
+      letter-spacing: -.044em;
+      line-height: 120px;
+    };
+
+    --paper-font-display3: {
+      @apply(--paper-font-common-base);
+      @apply(--paper-font-common-nowrap);
+
+      font-size: 56px;
+      font-weight: 400;
+      letter-spacing: -.026em;
+      line-height: 60px;
+    };
+
+    --paper-font-display2: {
+      @apply(--paper-font-common-base);
+
+      font-size: 45px;
+      font-weight: 400;
+      letter-spacing: -.018em;
+      line-height: 48px;
+    };
+
+    --paper-font-display1: {
+      @apply(--paper-font-common-base);
+
+      font-size: 34px;
+      font-weight: 400;
+      letter-spacing: -.01em;
+      line-height: 40px;
+    };
+
+    --paper-font-headline: {
+      @apply(--paper-font-common-base);
+
+      font-size: 24px;
+      font-weight: 400;
+      letter-spacing: -.012em;
+      line-height: 32px;
+    };
+
+    --paper-font-title: {
+      @apply(--paper-font-common-base);
+      @apply(--paper-font-common-nowrap);
+
+      font-size: 20px;
+      font-weight: 500;
+      line-height: 28px;
+    };
+
+    --paper-font-subhead: {
+      @apply(--paper-font-common-base);
+
+      font-size: 16px;
+      font-weight: 400;
+      line-height: 24px;
+    };
+
+    --paper-font-body2: {
+      @apply(--paper-font-common-base);
+
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 24px;
+    };
+
+    --paper-font-body1: {
+      @apply(--paper-font-common-base);
+
+      font-size: 14px;
+      font-weight: 400;
+      line-height: 20px;
+    };
+
+    --paper-font-caption: {
+      @apply(--paper-font-common-base);
+      @apply(--paper-font-common-nowrap);
+
+      font-size: 12px;
+      font-weight: 400;
+      letter-spacing: 0.011em;
+      line-height: 20px;
+    };
+
+    --paper-font-menu: {
+      @apply(--paper-font-common-base);
+      @apply(--paper-font-common-nowrap);
+
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 24px;
+    };
+
+    --paper-font-button: {
+      @apply(--paper-font-common-base);
+      @apply(--paper-font-common-nowrap);
+
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0.018em;
+      line-height: 24px;
+      text-transform: uppercase;
+    };
+
+    --paper-font-code2: {
+      @apply(--paper-font-common-code);
+
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 20px;
+    };
+
+    --paper-font-code1: {
+      @apply(--paper-font-common-code);
+
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 20px;
+    };
+
+  }
+
+</style>
 <dom-module id="paper-item-shared-styles" assetpath="../bower_components/paper-item/">
   <template>
     <style>
-      :host {
+      :host, .paper-item {
         display: block;
         position: relative;
         min-height: var(--paper-item-min-height, 48px);
         padding: 0px 16px;
       }
 
-      :host([hidden]) {
+      .paper-item {
+        @apply(--paper-font-subhead);
+        border:none;
+        outline: none;
+        background: white;
+        width: 100%;
+        text-align: left;
+      }
+
+      :host([hidden]), .paper-item[hidden] {
         display: none !important;
       }
 
-      :host(.iron-selected) {
+      :host(.iron-selected), .paper-item.iron-selected {
         font-weight: var(--paper-item-selected-weight, bold);
 
         @apply(--paper-item-selected);
       }
 
-      :host([disabled]) {
+      :host([disabled]), .paper-item[disabled] {
         color: var(--paper-item-disabled-color, --disabled-text-color);
 
         @apply(--paper-item-disabled);
       }
 
-      :host(:focus) {
+      :host(:focus), .paper-item:focus {
         position: relative;
         outline: 0;
 
         @apply(--paper-item-focused);
       }
 
-      :host(:focus):before {
+      :host(:focus):before, .paper-item:focus:before {
         @apply(--layout-fit);
 
         background: currentColor;
@@ -12671,6 +13170,8 @@ this.fire('dom-change');
      * @param {string|number} value the value to select.
      */
     select: function(value) {
+      // Cancel automatically focusing a default item if the menu received focus
+      // through a user action selecting a particular item.
       if (this._defaultFocusAsync) {
         this.cancelAsync(this._defaultFocusAsync);
         this._defaultFocusAsync = null;
@@ -12720,7 +13221,8 @@ this.fire('dom-change');
         var attr = this.attrForItemTitle || 'textContent';
         var title = item[attr] || item.getAttribute(attr);
 
-        if (title && title.trim().charAt(0).toLowerCase() === String.fromCharCode(event.keyCode).toLowerCase()) {
+        if (!item.hasAttribute('disabled') && title && 
+            title.trim().charAt(0).toLowerCase() === String.fromCharCode(event.keyCode).toLowerCase()) {
           this._setFocusedItem(item);
           break;
         }
@@ -12729,21 +13231,34 @@ this.fire('dom-change');
 
     /**
      * Focuses the previous item (relative to the currently focused item) in the
-     * menu.
+     * menu, disabled items will be skipped.
      */
     _focusPrevious: function() {
       var length = this.items.length;
-      var index = (Number(this.indexOf(this.focusedItem)) - 1 + length) % length;
-      this._setFocusedItem(this.items[index]);
+      var curFocusIndex = Number(this.indexOf(this.focusedItem));
+      for (var i = 1; i < length; i++) {
+        var item = this.items[(curFocusIndex - i + length) % length];
+        if (!item.hasAttribute('disabled')) {
+          this._setFocusedItem(item);
+          return;
+        }
+      }
     },
 
     /**
      * Focuses the next item (relative to the currently focused item) in the
-     * menu.
+     * menu, disabled items will be skipped.
      */
     _focusNext: function() {
-      var index = (Number(this.indexOf(this.focusedItem)) + 1) % this.items.length;
-      this._setFocusedItem(this.items[index]);
+      var length = this.items.length;
+      var curFocusIndex = Number(this.indexOf(this.focusedItem));
+      for (var i = 1; i < length; i++) {
+        var item = this.items[(curFocusIndex + i) % length];
+        if (!item.hasAttribute('disabled')) {
+          this._setFocusedItem(item);
+          return;
+        }
+      }
     },
 
     /**
@@ -12835,12 +13350,11 @@ this.fire('dom-change');
 
       // Do not focus the selected tab if the deepest target is part of the
       // menu element's local DOM and is focusable.
-      var rootTarget = Polymer.dom(event).rootTarget;
+      var rootTarget = /** @type {?HTMLElement} */(
+          Polymer.dom(event).rootTarget);
       if (rootTarget !== this && typeof rootTarget.tabIndex !== "undefined" && !this.isLightDescendant(rootTarget)) {
         return;
       }
-
-      this.blur();
 
       // clear the cached focus item
       this._defaultFocusAsync = this.async(function() {
@@ -12852,11 +13366,11 @@ this.fire('dom-change');
 
         if (selectedItem) {
           this._setFocusedItem(selectedItem);
-        } else {
-          this._setFocusedItem(this.items[0]);
+        } else if (this.items[0]) {
+          // We find the first none-disabled item (if one exists)
+          this._focusNext();
         }
-      // async 1ms to wait for `select` to get called from `_itemActivate`
-      }, 1);
+      });
     },
 
     /**
@@ -12867,6 +13381,7 @@ this.fire('dom-change');
     _onUpKey: function(event) {
       // up and down arrows moves the focus
       this._focusPrevious();
+      event.detail.keyboardEvent.preventDefault();
     },
 
     /**
@@ -12876,6 +13391,7 @@ this.fire('dom-change');
      */
     _onDownKey: function(event) {
       this._focusNext();
+      event.detail.keyboardEvent.preventDefault();
     },
 
     /**
@@ -13486,164 +14002,6 @@ this.fire('dom-change');
 })();
 
 </script>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:400,300,300italic,400italic,500,500italic,700,700italic">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto+Mono:400,700">
-<style is="custom-style">
-
-  :root {
-
-    /* Shared Styles */
-    --paper-font-common-base: {
-      font-family: 'Roboto', 'Noto', sans-serif;
-      -webkit-font-smoothing: antialiased;
-    };
-
-    --paper-font-common-code: {
-      font-family: 'Roboto Mono', 'Consolas', 'Menlo', monospace;
-      -webkit-font-smoothing: antialiased;
-    };
-
-    --paper-font-common-expensive-kerning: {
-      text-rendering: optimizeLegibility;
-    };
-
-    --paper-font-common-nowrap: {
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    };
-
-    /* Material Font Styles */
-
-    --paper-font-display4: {
-      @apply(--paper-font-common-base);
-      @apply(--paper-font-common-nowrap);
-
-      font-size: 112px;
-      font-weight: 300;
-      letter-spacing: -.044em;
-      line-height: 120px;
-    };
-
-    --paper-font-display3: {
-      @apply(--paper-font-common-base);
-      @apply(--paper-font-common-nowrap);
-
-      font-size: 56px;
-      font-weight: 400;
-      letter-spacing: -.026em;
-      line-height: 60px;
-    };
-
-    --paper-font-display2: {
-      @apply(--paper-font-common-base);
-
-      font-size: 45px;
-      font-weight: 400;
-      letter-spacing: -.018em;
-      line-height: 48px;
-    };
-
-    --paper-font-display1: {
-      @apply(--paper-font-common-base);
-
-      font-size: 34px;
-      font-weight: 400;
-      letter-spacing: -.01em;
-      line-height: 40px;
-    };
-
-    --paper-font-headline: {
-      @apply(--paper-font-common-base);
-
-      font-size: 24px;
-      font-weight: 400;
-      letter-spacing: -.012em;
-      line-height: 32px;
-    };
-
-    --paper-font-title: {
-      @apply(--paper-font-common-base);
-      @apply(--paper-font-common-nowrap);
-
-      font-size: 20px;
-      font-weight: 500;
-      line-height: 28px;
-    };
-
-    --paper-font-subhead: {
-      @apply(--paper-font-common-base);
-
-      font-size: 16px;
-      font-weight: 400;
-      line-height: 24px;
-    };
-
-    --paper-font-body2: {
-      @apply(--paper-font-common-base);
-
-      font-size: 14px;
-      font-weight: 500;
-      line-height: 24px;
-    };
-
-    --paper-font-body1: {
-      @apply(--paper-font-common-base);
-
-      font-size: 14px;
-      font-weight: 400;
-      line-height: 20px;
-    };
-
-    --paper-font-caption: {
-      @apply(--paper-font-common-base);
-      @apply(--paper-font-common-nowrap);
-
-      font-size: 12px;
-      font-weight: 400;
-      letter-spacing: 0.011em;
-      line-height: 20px;
-    };
-
-    --paper-font-menu: {
-      @apply(--paper-font-common-base);
-      @apply(--paper-font-common-nowrap);
-
-      font-size: 13px;
-      font-weight: 500;
-      line-height: 24px;
-    };
-
-    --paper-font-button: {
-      @apply(--paper-font-common-base);
-      @apply(--paper-font-common-nowrap);
-
-      font-size: 14px;
-      font-weight: 500;
-      letter-spacing: 0.018em;
-      line-height: 24px;
-      text-transform: uppercase;
-    };
-
-    --paper-font-code2: {
-      @apply(--paper-font-common-code);
-
-      font-size: 14px;
-      font-weight: 700;
-      line-height: 20px;
-    };
-
-    --paper-font-code1: {
-      @apply(--paper-font-common-code);
-
-      font-size: 14px;
-      font-weight: 500;
-      line-height: 20px;
-    };
-
-  }
-
-</style>
 
 
 <dom-module id="iron-a11y-announcer" assetpath="../bower_components/iron-a11y-announcer/">
@@ -13726,9 +14084,8 @@ this.fire('dom-change');
   </script>
 </dom-module>
 <script>
-
 /**
-Polymer.IronFitBehavior fits an element in another element using `max-height` and `max-width`, and
+`Polymer.IronFitBehavior` fits an element in another element using `max-height` and `max-width`, and
 optionally centers it in the window or another element.
 
 The element will only be sized and/or positioned if it has not already been sized and/or positioned
@@ -13739,8 +14096,25 @@ CSS properties               | Action
 `position` set               | Element is not centered horizontally or vertically
 `top` or `bottom` set        | Element is not vertically centered
 `left` or `right` set        | Element is not horizontally centered
-`max-height` or `height` set | Element respects `max-height` or `height`
-`max-width` or `width` set   | Element respects `max-width` or `width`
+`max-height` set             | Element respects `max-height`
+`max-width` set              | Element respects `max-width`
+
+`Polymer.IronFitBehavior` can position an element into another element using
+`verticalAlign` and `horizontalAlign`. This will override the element's css position.
+
+      <div class="container">
+        <iron-fit-impl vertical-align="top" horizontal-align="auto">
+          Positioned into the container
+        </iron-fit-impl>
+      </div>
+
+Use `noOverlap` to position the element around another element without overlapping it.
+
+      <div class="container">
+        <iron-fit-impl no-overlap vertical-align="auto" horizontal-align="auto">
+          Positioned around the container
+        </iron-fit-impl>
+      </div>
 
 @demo demo/index.html
 @polymerBehavior
@@ -13772,6 +14146,58 @@ CSS properties               | Action
       },
 
       /**
+       * Will position the element around the positionTarget without overlapping it.
+       */
+      noOverlap: {
+        type: Boolean
+      },
+
+      /**
+       * The element that should be used to position the element. If not set, it will
+       * default to the parent node.
+       * @type {!Element}
+       */
+      positionTarget: {
+        type: Element
+      },
+
+      /**
+       * The orientation against which to align the element horizontally
+       * relative to the `positionTarget`. Possible values are "left", "right", "auto".
+       */
+      horizontalAlign: {
+        type: String
+      },
+
+      /**
+       * The orientation against which to align the element vertically
+       * relative to the `positionTarget`. Possible values are "top", "bottom", "auto".
+       */
+      verticalAlign: {
+        type: String
+      },
+
+      /**
+       * The same as setting margin-left and margin-right css properties.
+       * @deprecated
+       */
+      horizontalOffset: {
+        type: Number,
+        value: 0,
+        notify: true
+      },
+
+      /**
+       * The same as setting margin-top and margin-bottom css properties.
+       * @deprecated
+       */
+      verticalOffset: {
+        type: Number,
+        value: 0,
+        notify: true
+      },
+
+      /**
        * Set to true to auto-fit on attach.
        */
       autoFitOnAttach: {
@@ -13783,7 +14209,6 @@ CSS properties               | Action
       _fitInfo: {
         type: Object
       }
-
     },
 
     get _fitWidth() {
@@ -13826,7 +14251,40 @@ CSS properties               | Action
       return fitTop;
     },
 
+    /**
+     * The element that should be used to position the element,
+     * if no position target is configured.
+     */
+    get _defaultPositionTarget() {
+      var parent = Polymer.dom(this).parentNode;
+
+      if (parent && parent.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+        parent = parent.host;
+      }
+
+      return parent;
+    },
+
+    /**
+     * The horizontal align value, accounting for the RTL/LTR text direction.
+     */
+    get _localeHorizontalAlign() {
+      if (this._isRTL) {
+        // In RTL, "left" becomes "right".
+        if (this.horizontalAlign === 'right') {
+          return 'left';
+        }
+        if (this.horizontalAlign === 'left') {
+          return 'right';
+        }
+      }
+      return this.horizontalAlign;
+    },
+
     attached: function() {
+      // Memoize this to avoid expensive calculations & relayouts.
+      this._isRTL = window.getComputedStyle(this).direction == 'rtl';
+      this.positionTarget = this.positionTarget || this._defaultPositionTarget;
       if (this.autoFitOnAttach) {
         if (window.getComputedStyle(this).display === 'none') {
           setTimeout(function() {
@@ -13839,10 +14297,11 @@ CSS properties               | Action
     },
 
     /**
-     * Fits and optionally centers the element into the window, or `fitInfo` if specified.
+     * Positions and fits the element into the `fitInto` element.
      */
     fit: function() {
       this._discoverInfo();
+      this.position();
       this.constrain();
       this.center();
     },
@@ -13856,21 +14315,29 @@ CSS properties               | Action
       }
       var target = window.getComputedStyle(this);
       var sizer = window.getComputedStyle(this.sizingTarget);
+
       this._fitInfo = {
         inlineStyle: {
           top: this.style.top || '',
-          left: this.style.left || ''
+          left: this.style.left || '',
+          position: this.style.position || ''
+        },
+        sizerInlineStyle: {
+          maxWidth: this.sizingTarget.style.maxWidth || '',
+          maxHeight: this.sizingTarget.style.maxHeight || '',
+          boxSizing: this.sizingTarget.style.boxSizing || ''
         },
         positionedBy: {
           vertically: target.top !== 'auto' ? 'top' : (target.bottom !== 'auto' ?
             'bottom' : null),
           horizontally: target.left !== 'auto' ? 'left' : (target.right !== 'auto' ?
-            'right' : null),
-          css: target.position
+            'right' : null)
         },
         sizedBy: {
           height: sizer.maxHeight !== 'none',
-          width: sizer.maxWidth !== 'none'
+          width: sizer.maxWidth !== 'none',
+          minWidth: parseInt(sizer.minWidth, 10) || 0,
+          minHeight: parseInt(sizer.minHeight, 10) || 0
         },
         margin: {
           top: parseInt(target.marginTop, 10) || 0,
@@ -13879,6 +14346,20 @@ CSS properties               | Action
           left: parseInt(target.marginLeft, 10) || 0
         }
       };
+
+      // Support these properties until they are removed.
+      if (this.verticalOffset) {
+        this._fitInfo.margin.top = this._fitInfo.margin.bottom = this.verticalOffset;
+        this._fitInfo.inlineStyle.marginTop = this.style.marginTop || '';
+        this._fitInfo.inlineStyle.marginBottom = this.style.marginBottom || '';
+        this.style.marginTop = this.style.marginBottom = this.verticalOffset + 'px';
+      }
+      if (this.horizontalOffset) {
+        this._fitInfo.margin.left = this._fitInfo.margin.right = this.horizontalOffset;
+        this._fitInfo.inlineStyle.marginLeft = this.style.marginLeft || '';
+        this._fitInfo.inlineStyle.marginRight = this.style.marginRight || '';
+        this.style.marginLeft = this.style.marginRight = this.horizontalOffset + 'px';
+      }
     },
 
     /**
@@ -13886,23 +14367,21 @@ CSS properties               | Action
      * the memoized data.
      */
     resetFit: function() {
-      if (!this._fitInfo || !this._fitInfo.sizedBy.height) {
-        this.sizingTarget.style.maxHeight = '';
-        this.style.top = this._fitInfo ? this._fitInfo.inlineStyle.top : '';
+      var info = this._fitInfo || {};
+      for (var property in info.sizerInlineStyle) {
+        this.sizingTarget.style[property] = info.sizerInlineStyle[property];
       }
-      if (!this._fitInfo || !this._fitInfo.sizedBy.width) {
-        this.sizingTarget.style.maxWidth = '';
-        this.style.left = this._fitInfo ? this._fitInfo.inlineStyle.left : '';
+      for (var property in info.inlineStyle) {
+        this.style[property] = info.inlineStyle[property];
       }
-      if (this._fitInfo) {
-        this.style.position = this._fitInfo.positionedBy.css;
-      }
+
       this._fitInfo = null;
     },
 
     /**
-     * Equivalent to calling `resetFit()` and `fit()`. Useful to call this after the element,
-     * the window, or the `fitInfo` element has been resized.
+     * Equivalent to calling `resetFit()` and `fit()`. Useful to call this after
+     * the element or the `fitInto` element has been resized, or if any of the
+     * positioning properties (e.g. `horizontalAlign, verticalAlign`) is updated.
      */
     refit: function() {
       this.resetFit();
@@ -13910,37 +14389,137 @@ CSS properties               | Action
     },
 
     /**
-     * Constrains the size of the element to the window or `fitInfo` by setting `max-height`
+     * Positions the element according to `horizontalAlign, verticalAlign`.
+     */
+    position: function() {
+      if (!this.horizontalAlign && !this.verticalAlign) {
+        // needs to be centered, and it is done after constrain.
+        return;
+      }
+
+      this.style.position = 'fixed';
+      // Need border-box for margin/padding.
+      this.sizingTarget.style.boxSizing = 'border-box';
+      // Set to 0, 0 in order to discover any offset caused by parent stacking contexts.
+      this.style.left = '0px';
+      this.style.top = '0px';
+
+      var rect = this.getBoundingClientRect();
+      var positionRect = this.__getNormalizedRect(this.positionTarget);
+      var fitRect = this.__getNormalizedRect(this.fitInto);
+
+      // Consider the margin as part of the size for position calculations.
+      var width = rect.width + this._fitInfo.margin.left + this._fitInfo.margin.right;
+      var height = rect.height + this._fitInfo.margin.top + this._fitInfo.margin.bottom;
+
+      var alignRight = this.__isAlignRight(this._localeHorizontalAlign, width, positionRect, fitRect);
+      var alignBottom = this.__isAlignBottom(this.verticalAlign, height, positionRect, fitRect);
+
+      var top = alignBottom ? positionRect.bottom - height : positionRect.top;
+      var left = alignRight ? positionRect.right - width : positionRect.left;
+
+      if (this.noOverlap) {
+        // We can overlap one of the dimensions, choose the one that minimizes the cropped area.
+        var noOverlapLeft = left + positionRect.width * (alignRight ? -1 : 1);
+        var noOverlapTop = top + positionRect.height * (alignBottom ? -1 : 1);
+        var areaOverlapLeft = this.__getCroppedArea({
+          top: noOverlapTop,
+          left: left,
+          width: width,
+          height: height
+        }, fitRect);
+        var areaOverlapTop = this.__getCroppedArea({
+          top: top,
+          left: noOverlapLeft,
+          width: width,
+          height: height
+        }, fitRect);
+        if (areaOverlapLeft >= areaOverlapTop) {
+          left = noOverlapLeft;
+        } else {
+          top = noOverlapTop;
+        }
+      }
+
+      left += this._fitInfo.margin.left;
+      top += this._fitInfo.margin.top;
+
+      // Use original size (without margin)
+      var right = left + rect.width;
+      var bottom = top + rect.height;
+
+      left = Math.max(left, this._fitInfo.margin.left);
+      top = Math.max(top, this._fitInfo.margin.top);
+
+      var maxWidth = Math.min(fitRect.right - this._fitInfo.margin.right, right) - left;
+      var maxHeight = Math.min(fitRect.bottom - this._fitInfo.margin.bottom, bottom) - top;
+
+      var minWidth = this._fitInfo.sizedBy.minWidth;
+      var minHeight = this._fitInfo.sizedBy.minHeight;
+
+      if (maxWidth < minWidth || right < minWidth) {
+        left = -9999;
+        maxWidth = 0;
+      }
+      if (maxHeight < minHeight || bottom < minHeight) {
+        top = -9999;
+        maxHeight = 0;
+      }
+
+      this.sizingTarget.style.maxWidth = maxWidth + 'px';
+      this.sizingTarget.style.maxHeight = maxHeight + 'px';
+
+      // Remove the offset caused by any stacking context.
+      this.style.left = (left - rect.left) + 'px';
+      this.style.top = (top - rect.top) + 'px';
+    },
+
+    /**
+     * Constrains the size of the element to `fitInto` by setting `max-height`
      * and/or `max-width`.
      */
     constrain: function() {
+      if (this.horizontalAlign || this.verticalAlign) {
+        return;
+      }
       var info = this._fitInfo;
       // position at (0px, 0px) if not already positioned, so we can measure the natural size.
-      if (!this._fitInfo.positionedBy.vertically) {
+      if (!info.positionedBy.vertically) {
+        this.style.position = 'fixed';
         this.style.top = '0px';
       }
-      if (!this._fitInfo.positionedBy.horizontally) {
+      if (!info.positionedBy.horizontally) {
+        this.style.position = 'fixed';
         this.style.left = '0px';
       }
-      if (!this._fitInfo.positionedBy.vertically || !this._fitInfo.positionedBy.horizontally) {
-        // need position:fixed to properly size the element
-        this.style.position = 'fixed';
-      }
+
       // need border-box for margin/padding
       this.sizingTarget.style.boxSizing = 'border-box';
       // constrain the width and height if not already set
       var rect = this.getBoundingClientRect();
       if (!info.sizedBy.height) {
-        this._sizeDimension(rect, info.positionedBy.vertically, 'top', 'bottom', 'Height');
+        this.__sizeDimension(rect, info.positionedBy.vertically, 'top', 'bottom', 'Height');
       }
       if (!info.sizedBy.width) {
-        this._sizeDimension(rect, info.positionedBy.horizontally, 'left', 'right', 'Width');
+        this.__sizeDimension(rect, info.positionedBy.horizontally, 'left', 'right', 'Width');
       }
     },
 
+    /**
+     * @protected
+     * @deprecated
+     */
     _sizeDimension: function(rect, positionedBy, start, end, extent) {
+      this.__sizeDimension(rect, positionedBy, start, end, extent);
+    },
+
+    /**
+     * @private
+     */
+    __sizeDimension: function(rect, positionedBy, start, end, extent) {
       var info = this._fitInfo;
-      var max = extent === 'Width' ? this._fitWidth : this._fitHeight;
+      var fitRect = this.__getNormalizedRect(this.fitInto);
+      var max = extent === 'Width' ? fitRect.width : fitRect.height;
       var flip = (positionedBy === end);
       var offset = flip ? max - rect[end] : rect[start];
       var margin = info.margin[flip ? start : end];
@@ -13954,198 +14533,119 @@ CSS properties               | Action
      * `position:fixed`.
      */
     center: function() {
-      if (!this._fitInfo.positionedBy.vertically || !this._fitInfo.positionedBy.horizontally) {
-        // need position:fixed to center
-        this.style.position = 'fixed';
+      if (this.horizontalAlign || this.verticalAlign) {
+        return;
       }
-      if (!this._fitInfo.positionedBy.vertically) {
-        var top = (this._fitHeight - this.offsetHeight) / 2 + this._fitTop;
-        top -= this._fitInfo.margin.top;
+      var positionedBy = this._fitInfo.positionedBy;
+      if (positionedBy.vertically && positionedBy.horizontally) {
+        // Already positioned.
+        return;
+      }
+      // Need position:fixed to center
+      this.style.position = 'fixed';
+      // Take into account the offset caused by parents that create stacking
+      // contexts (e.g. with transform: translate3d). Translate to 0,0 and
+      // measure the bounding rect.
+      if (!positionedBy.vertically) {
+        this.style.top = '0px';
+      }
+      if (!positionedBy.horizontally) {
+        this.style.left = '0px';
+      }
+      // It will take in consideration margins and transforms
+      var rect = this.getBoundingClientRect();
+      var fitRect = this.__getNormalizedRect(this.fitInto);
+      if (!positionedBy.vertically) {
+        var top = fitRect.top - rect.top + (fitRect.height - rect.height) / 2;
         this.style.top = top + 'px';
       }
-      if (!this._fitInfo.positionedBy.horizontally) {
-        var left = (this._fitWidth - this.offsetWidth) / 2 + this._fitLeft;
-        left -= this._fitInfo.margin.left;
+      if (!positionedBy.horizontally) {
+        var left = fitRect.left - rect.left + (fitRect.width - rect.width) / 2;
         this.style.left = left + 'px';
       }
-    }
+    },
 
-  };
-
-</script>
-<script>
-
-  /**
-   * @struct
-   * @constructor
-   */
-  Polymer.IronOverlayManagerClass = function() {
-    this._overlays = [];
-    /**
-     * iframes have a default z-index of 100, so this default should be at least
-     * that.
-     * @private {number}
-     */
-    this._minimumZ = 101;
-
-    this._backdrops = [];
-
-    this._backdropElement = null;
-    Object.defineProperty(this, 'backdropElement', {
-      get: function() {
-        if (!this._backdropElement) {
-          this._backdropElement = document.createElement('iron-overlay-backdrop');
-        }
-        return this._backdropElement;
-      }.bind(this)
-    });
-  }
-
-  Polymer.IronOverlayManagerClass.prototype._applyOverlayZ = function(overlay, aboveZ) {
-    this._setZ(overlay, aboveZ + 2);
-  };
-
-  Polymer.IronOverlayManagerClass.prototype._setZ = function(element, z) {
-    element.style.zIndex = z;
-  };
-
-  /**
-   * track overlays for z-index and focus managemant
-   */
-  Polymer.IronOverlayManagerClass.prototype.addOverlay = function(overlay) {
-    var minimumZ = Math.max(this.currentOverlayZ(), this._minimumZ);
-    this._overlays.push(overlay);
-    var newZ = this.currentOverlayZ();
-    if (newZ <= minimumZ) {
-      this._applyOverlayZ(overlay, minimumZ);
-    }
-  };
-
-  Polymer.IronOverlayManagerClass.prototype.removeOverlay = function(overlay) {
-    var i = this._overlays.indexOf(overlay);
-    if (i >= 0) {
-      this._overlays.splice(i, 1);
-      this._setZ(overlay, '');
-    }
-  };
-
-  Polymer.IronOverlayManagerClass.prototype.currentOverlay = function() {
-    var i = this._overlays.length - 1;
-    while (this._overlays[i] && !this._overlays[i].opened) {
-      --i;
-    }
-    return this._overlays[i];
-  };
-
-  Polymer.IronOverlayManagerClass.prototype.currentOverlayZ = function() {
-    return this._getOverlayZ(this.currentOverlay());
-  };
-
-  /**
-   * Ensures that the minimum z-index of new overlays is at least `minimumZ`.
-   * This does not effect the z-index of any existing overlays.
-   *
-   * @param {number} minimumZ
-   */
-  Polymer.IronOverlayManagerClass.prototype.ensureMinimumZ = function(minimumZ) {
-    this._minimumZ = Math.max(this._minimumZ, minimumZ);
-  };
-
-  Polymer.IronOverlayManagerClass.prototype.focusOverlay = function() {
-    var current = this.currentOverlay();
-    // We have to be careful to focus the next overlay _after_ any current
-    // transitions are complete (due to the state being toggled prior to the
-    // transition). Otherwise, we risk infinite recursion when a transitioning
-    // (closed) overlay becomes the current overlay.
-    //
-    // NOTE: We make the assumption that any overlay that completes a transition
-    // will call into focusOverlay to kick the process back off. Currently:
-    // transitionend -> _applyFocus -> focusOverlay.
-    if (current && !current.transitioning) {
-      current._applyFocus();
-    }
-  };
-
-  Polymer.IronOverlayManagerClass.prototype.trackBackdrop = function(element) {
-    // backdrops contains the overlays with a backdrop that are currently
-    // visible
-    var index = this._backdrops.indexOf(element);
-    if (element.opened && element.withBackdrop) {
-      // no duplicates
-      if (index === -1) {
-        this._backdrops.push(element);
+    __getNormalizedRect: function(target) {
+      if (target === document.documentElement || target === window) {
+        return {
+          top: 0,
+          left: 0,
+          width: window.innerWidth,
+          height: window.innerHeight,
+          right: window.innerWidth,
+          bottom: window.innerHeight
+        };
       }
-    } else if (index >= 0) {
-      this._backdrops.splice(index, 1);
-    }
-  };
+      return target.getBoundingClientRect();
+    },
 
-  Polymer.IronOverlayManagerClass.prototype.getBackdrops = function() {
-    return this._backdrops;
-  };
-
-  /**
-   * Returns the z-index for the backdrop.
-   */
-  Polymer.IronOverlayManagerClass.prototype.backdropZ = function() {
-    return this._getOverlayZ(this._overlayWithBackdrop()) - 1;
-  };
-
-  /**
-   * Returns the first opened overlay that has a backdrop.
-   */
-  Polymer.IronOverlayManagerClass.prototype._overlayWithBackdrop = function() {
-    for (var i = 0; i < this._overlays.length; i++) {
-      if (this._overlays[i].opened && this._overlays[i].withBackdrop) {
-        return this._overlays[i];
+    __isAlignRight: function(hAlign, size, positionRect, fitRect) {
+      if (hAlign === 'right') {
+        return true;
       }
-    }
-  };
-
-  /**
-   * Calculates the minimum z-index for the overlay.
-   */
-  Polymer.IronOverlayManagerClass.prototype._getOverlayZ = function(overlay) {
-    var z = this._minimumZ;
-    if (overlay) {
-      var z1 = Number(window.getComputedStyle(overlay).zIndex);
-      // Check if is a number
-      // Number.isNaN not supported in IE 10+
-      if (z1 === z1) {
-        z = z1;
+      if (hAlign === 'auto') {
+        // We should align on the right if positionTarget is on the right of fitInto,
+        // or if we can overlap and aligning on the left would cause more cropping
+        // than aligning on the right.
+        var positionTargetCenter = positionRect.left + positionRect.width/2;
+        var fitIntoCenter = fitRect.left + fitRect.width/2;
+        var croppedLeft = Math.abs(Math.min(0, positionRect.left));
+        var croppedRight = Math.abs(Math.min(0, positionRect.right - size));
+        return positionTargetCenter > fitIntoCenter ||
+          (!this.noOverlap && croppedLeft > croppedRight);
       }
+      return false;
+    },
+
+    __isAlignBottom: function(vAlign, size, positionRect, fitRect) {
+      if (vAlign === 'bottom') {
+        return true;
+      }
+      if (vAlign === 'auto') {
+        // We should align on the bottom if positionTarget is on the bottom of fitInto,
+        // or if we can overlap and aligning on the top would cause more cropping
+        // than aligning on the bottom.
+        var positionTargetCenter = positionRect.top + positionRect.height/2;
+        var fitIntoCenter = fitRect.top + fitRect.height/2;
+        var croppedTop = Math.abs(Math.min(0, positionRect.top));
+        var croppedBottom = Math.abs(Math.min(0, positionRect.bottom - size));
+        return positionTargetCenter > fitIntoCenter ||
+          (!this.noOverlap && croppedTop > croppedBottom);
+      }
+      return false;
+    },
+
+    __getCroppedArea: function(rect, fitRect) {
+      var verticalCrop = Math.min(0, rect.top) + Math.min(0, fitRect.bottom - (rect.top + rect.height));
+      var horizontalCrop = Math.min(0, rect.left) + Math.min(0, fitRect.right - (rect.left + rect.width));
+      return Math.abs(verticalCrop) * rect.width + Math.abs(horizontalCrop) * rect.height;
     }
-    return z;
+
   };
-
-  Polymer.IronOverlayManager = new Polymer.IronOverlayManagerClass();
-
 </script>
 
 
 <dom-module id="iron-overlay-backdrop" assetpath="../bower_components/iron-overlay-behavior/">
 
   <style>
-
     :host {
       position: fixed;
       top: 0;
       left: 0;
-      width: 100vw;
-      height: 100vh;
+      width: 100%;
+      height: 100%;
       background-color: var(--iron-overlay-backdrop-background-color, #000);
       opacity: 0;
       transition: opacity 0.2s;
-
+      pointer-events: none;
       @apply(--iron-overlay-backdrop);
     }
 
-    :host([opened]) {
+    :host(.opened) {
       opacity: var(--iron-overlay-backdrop-opacity, 0.6);
-
+      pointer-events: auto;
       @apply(--iron-overlay-backdrop-opened);
     }
-
   </style>
 
   <template>
@@ -14155,8 +14655,8 @@ CSS properties               | Action
 </dom-module>
 
 <script>
-
 (function() {
+'use strict';
 
   Polymer({
 
@@ -14168,85 +14668,494 @@ CSS properties               | Action
        * Returns true if the backdrop is opened.
        */
       opened: {
-        readOnly: true,
         reflectToAttribute: true,
         type: Boolean,
-        value: false
-      },
-
-      _manager: {
-        type: Object,
-        value: Polymer.IronOverlayManager
+        value: false,
+        observer: '_openedChanged'
       }
 
     },
 
     listeners: {
-      'transitionend' : '_onTransitionend'
+      'transitionend': '_onTransitionend'
+    },
+
+    created: function() {
+      // Used to cancel previous requestAnimationFrame calls when opened changes.
+      this.__openedRaf = null;
+    },
+
+    attached: function() {
+      this.opened && this._openedChanged(this.opened);
     },
 
     /**
-     * Appends the backdrop to document body and sets its `z-index` to be below the latest overlay.
+     * Appends the backdrop to document body if needed.
      */
     prepare: function() {
-      // Always update z-index
-      this.style.zIndex = this._manager.backdropZ();
-      if (!this.parentNode) {
+      if (this.opened && !this.parentNode) {
         Polymer.dom(document.body).appendChild(this);
       }
     },
 
     /**
-     * Shows the backdrop if needed.
+     * Shows the backdrop.
      */
     open: function() {
-      // only need to make the backdrop visible if this is called by the first overlay with a backdrop
-      if (this._manager.getBackdrops().length < 2) {
-        this._setOpened(true);
-      }
+      this.opened = true;
     },
 
     /**
-     * Hides the backdrop if needed.
+     * Hides the backdrop.
      */
     close: function() {
-      // Always update z-index
-      this.style.zIndex = this._manager.backdropZ();
-      // close only if no element with backdrop is left
-      if (this._manager.getBackdrops().length === 0) {
-        // Read style before setting opened.
-        var cs = getComputedStyle(this);
-        var noAnimation = (cs.transitionDuration === '0s' || cs.opacity == 0);
-        this._setOpened(false);
-        // In case of no animations, complete
-        if (noAnimation) {
-          this.complete();
-        }
-      }
+      this.opened = false;
     },
 
     /**
      * Removes the backdrop from document body if needed.
      */
     complete: function() {
-      // only remove the backdrop if there are no more overlays with backdrops
-      if (this._manager.getBackdrops().length === 0 && this.parentNode) {
+      if (!this.opened && this.parentNode === document.body) {
         Polymer.dom(this.parentNode).removeChild(this);
       }
     },
 
-    _onTransitionend: function (event) {
+    _onTransitionend: function(event) {
       if (event && event.target === this) {
         this.complete();
       }
-    }
+    },
 
+    /**
+     * @param {boolean} opened
+     * @private
+     */
+    _openedChanged: function(opened) {
+      if (opened) {
+        // Auto-attach.
+        this.prepare();
+      } else {
+        // Animation might be disabled via the mixin or opacity custom property.
+        // If it is disabled in other ways, it's up to the user to call complete.
+        var cs = window.getComputedStyle(this);
+        if (cs.transitionDuration === '0s' || cs.opacity == 0) {
+          this.complete();
+        }
+      }
+
+      if (!this.isAttached) {
+        return;
+      }
+
+      // Always cancel previous requestAnimationFrame.
+      if (this.__openedRaf) {
+        window.cancelAnimationFrame(this.__openedRaf);
+        this.__openedRaf = null;
+      }
+      // Force relayout to ensure proper transitions.
+      this.scrollTop = this.scrollTop;
+      this.__openedRaf = window.requestAnimationFrame(function() {
+        this.__openedRaf = null;
+        this.toggleClass('opened', this.opened);
+      }.bind(this));
+    }
   });
 
 })();
 
 </script>
 <script>
+
+  /**
+   * @struct
+   * @constructor
+   * @private
+   */
+  Polymer.IronOverlayManagerClass = function() {
+    /**
+     * Used to keep track of the opened overlays.
+     * @private {Array<Element>}
+     */
+    this._overlays = [];
+
+    /**
+     * iframes have a default z-index of 100,
+     * so this default should be at least that.
+     * @private {number}
+     */
+    this._minimumZ = 101;
+
+    /**
+     * Memoized backdrop element.
+     * @private {Element|null}
+     */
+    this._backdropElement = null;
+
+    // Listen to mousedown or touchstart to be sure to be the first to capture
+    // clicks outside the overlay.
+    var clickEvent = ('ontouchstart' in window) ? 'touchstart' : 'mousedown';
+    document.addEventListener(clickEvent, this._onCaptureClick.bind(this), true);
+    document.addEventListener('focus', this._onCaptureFocus.bind(this), true);
+    document.addEventListener('keydown', this._onCaptureKeyDown.bind(this), true);
+  };
+
+  Polymer.IronOverlayManagerClass.prototype = {
+
+    constructor: Polymer.IronOverlayManagerClass,
+
+    /**
+     * The shared backdrop element.
+     * @type {!Element} backdropElement
+     */
+    get backdropElement() {
+      if (!this._backdropElement) {
+        this._backdropElement = document.createElement('iron-overlay-backdrop');
+      }
+      return this._backdropElement;
+    },
+
+    /**
+     * The deepest active element.
+     * @type {!Element} activeElement the active element
+     */
+    get deepActiveElement() {
+      // document.activeElement can be null
+      // https://developer.mozilla.org/en-US/docs/Web/API/Document/activeElement
+      // In case of null, default it to document.body.
+      var active = document.activeElement || document.body;
+      while (active.root && Polymer.dom(active.root).activeElement) {
+        active = Polymer.dom(active.root).activeElement;
+      }
+      return active;
+    },
+
+    /**
+     * Brings the overlay at the specified index to the front.
+     * @param {number} i
+     * @private
+     */
+    _bringOverlayAtIndexToFront: function(i) {
+      var overlay = this._overlays[i];
+      if (!overlay) {
+        return;
+      }
+      var lastI = this._overlays.length - 1;
+      var currentOverlay = this._overlays[lastI];
+      // Ensure always-on-top overlay stays on top.
+      if (currentOverlay && this._shouldBeBehindOverlay(overlay, currentOverlay)) {
+        lastI--;
+      }
+      // If already the top element, return.
+      if (i >= lastI) {
+        return;
+      }
+      // Update z-index to be on top.
+      var minimumZ = Math.max(this.currentOverlayZ(), this._minimumZ);
+      if (this._getZ(overlay) <= minimumZ) {
+        this._applyOverlayZ(overlay, minimumZ);
+      }
+
+      // Shift other overlays behind the new on top.
+      while (i < lastI) {
+        this._overlays[i] = this._overlays[i + 1];
+        i++;
+      }
+      this._overlays[lastI] = overlay;
+    },
+
+    /**
+     * Adds the overlay and updates its z-index if it's opened, or removes it if it's closed.
+     * Also updates the backdrop z-index.
+     * @param {!Element} overlay
+     */
+    addOrRemoveOverlay: function(overlay) {
+      if (overlay.opened) {
+        this.addOverlay(overlay);
+      } else {
+        this.removeOverlay(overlay);
+      }
+      this.trackBackdrop();
+    },
+
+    /**
+     * Tracks overlays for z-index and focus management.
+     * Ensures the last added overlay with always-on-top remains on top.
+     * @param {!Element} overlay
+     */
+    addOverlay: function(overlay) {
+      var i = this._overlays.indexOf(overlay);
+      if (i >= 0) {
+        this._bringOverlayAtIndexToFront(i);
+        return;
+      }
+      var insertionIndex = this._overlays.length;
+      var currentOverlay = this._overlays[insertionIndex - 1];
+      var minimumZ = Math.max(this._getZ(currentOverlay), this._minimumZ);
+      var newZ = this._getZ(overlay);
+
+      // Ensure always-on-top overlay stays on top.
+      if (currentOverlay && this._shouldBeBehindOverlay(overlay, currentOverlay)) {
+        // This bumps the z-index of +2.
+        this._applyOverlayZ(currentOverlay, minimumZ);
+        insertionIndex--;
+        // Update minimumZ to match previous overlay's z-index.
+        var previousOverlay = this._overlays[insertionIndex - 1];
+        minimumZ = Math.max(this._getZ(previousOverlay), this._minimumZ);
+      }
+
+      // Update z-index and insert overlay.
+      if (newZ <= minimumZ) {
+        this._applyOverlayZ(overlay, minimumZ);
+      }
+      this._overlays.splice(insertionIndex, 0, overlay);
+
+      // Get focused node.
+      var element = this.deepActiveElement;
+      overlay.restoreFocusNode = this._overlayParent(element) ? null : element;
+    },
+
+    /**
+     * @param {!Element} overlay
+     */
+    removeOverlay: function(overlay) {
+      var i = this._overlays.indexOf(overlay);
+      if (i === -1) {
+        return;
+      }
+      this._overlays.splice(i, 1);
+
+      var node = overlay.restoreFocusOnClose ? overlay.restoreFocusNode : null;
+      overlay.restoreFocusNode = null;
+      // Focus back only if still contained in document.body
+      if (node && Polymer.dom(document.body).deepContains(node)) {
+        node.focus();
+      }
+    },
+
+    /**
+     * Returns the current overlay.
+     * @return {Element|undefined}
+     */
+    currentOverlay: function() {
+      var i = this._overlays.length - 1;
+      return this._overlays[i];
+    },
+
+    /**
+     * Returns the current overlay z-index.
+     * @return {number}
+     */
+    currentOverlayZ: function() {
+      return this._getZ(this.currentOverlay());
+    },
+
+    /**
+     * Ensures that the minimum z-index of new overlays is at least `minimumZ`.
+     * This does not effect the z-index of any existing overlays.
+     * @param {number} minimumZ
+     */
+    ensureMinimumZ: function(minimumZ) {
+      this._minimumZ = Math.max(this._minimumZ, minimumZ);
+    },
+
+    focusOverlay: function() {
+      var current = /** @type {?} */ (this.currentOverlay());
+      // We have to be careful to focus the next overlay _after_ any current
+      // transitions are complete (due to the state being toggled prior to the
+      // transition). Otherwise, we risk infinite recursion when a transitioning
+      // (closed) overlay becomes the current overlay.
+      //
+      // NOTE: We make the assumption that any overlay that completes a transition
+      // will call into focusOverlay to kick the process back off. Currently:
+      // transitionend -> _applyFocus -> focusOverlay.
+      if (current && !current.transitioning) {
+        current._applyFocus();
+      }
+    },
+
+    /**
+     * Updates the backdrop z-index.
+     */
+    trackBackdrop: function() {
+      var overlay = this._overlayWithBackdrop();
+      // Avoid creating the backdrop if there is no overlay with backdrop.
+      if (!overlay && !this._backdropElement) {
+        return;
+      }
+      this.backdropElement.style.zIndex = this._getZ(overlay) - 1;
+      this.backdropElement.opened = !!overlay;
+    },
+
+    /**
+     * @return {Array<Element>}
+     */
+    getBackdrops: function() {
+      var backdrops = [];
+      for (var i = 0; i < this._overlays.length; i++) {
+        if (this._overlays[i].withBackdrop) {
+          backdrops.push(this._overlays[i]);
+        }
+      }
+      return backdrops;
+    },
+
+    /**
+     * Returns the z-index for the backdrop.
+     * @return {number}
+     */
+    backdropZ: function() {
+      return this._getZ(this._overlayWithBackdrop()) - 1;
+    },
+
+    /**
+     * Returns the first opened overlay that has a backdrop.
+     * @return {Element|undefined}
+     * @private
+     */
+    _overlayWithBackdrop: function() {
+      for (var i = 0; i < this._overlays.length; i++) {
+        if (this._overlays[i].withBackdrop) {
+          return this._overlays[i];
+        }
+      }
+    },
+
+    /**
+     * Calculates the minimum z-index for the overlay.
+     * @param {Element=} overlay
+     * @private
+     */
+    _getZ: function(overlay) {
+      var z = this._minimumZ;
+      if (overlay) {
+        var z1 = Number(overlay.style.zIndex || window.getComputedStyle(overlay).zIndex);
+        // Check if is a number
+        // Number.isNaN not supported in IE 10+
+        if (z1 === z1) {
+          z = z1;
+        }
+      }
+      return z;
+    },
+
+    /**
+     * @param {!Element} element
+     * @param {number|string} z
+     * @private
+     */
+    _setZ: function(element, z) {
+      element.style.zIndex = z;
+    },
+
+    /**
+     * @param {!Element} overlay
+     * @param {number} aboveZ
+     * @private
+     */
+    _applyOverlayZ: function(overlay, aboveZ) {
+      this._setZ(overlay, aboveZ + 2);
+    },
+
+    /**
+     * Returns the overlay containing the provided node. If the node is an overlay,
+     * it returns the node.
+     * @param {Element=} node
+     * @return {Element|undefined}
+     * @private
+     */
+    _overlayParent: function(node) {
+      while (node && node !== document.body) {
+        // Check if it is an overlay.
+        if (node._manager === this) {
+          return node;
+        }
+        // Use logical parentNode, or native ShadowRoot host.
+        node = Polymer.dom(node).parentNode || node.host;
+      }
+    },
+
+    /**
+     * Returns the deepest overlay in the path.
+     * @param {Array<Element>=} path
+     * @return {Element|undefined}
+     * @private
+     */
+    _overlayInPath: function(path) {
+      path = path || [];
+      for (var i = 0; i < path.length; i++) {
+        if (path[i]._manager === this) {
+          return path[i];
+        }
+      }
+    },
+
+    /**
+     * Ensures the click event is delegated to the right overlay.
+     * @param {!Event} event
+     * @private
+     */
+    _onCaptureClick: function(event) {
+      var overlay = /** @type {?} */ (this.currentOverlay());
+      // Check if clicked outside of top overlay.
+      if (overlay && this._overlayInPath(Polymer.dom(event).path) !== overlay) {
+        if (overlay.withBackdrop) {
+          // There's no need to stop the propagation as the backdrop element
+          // already got this mousedown/touchstart event. Calling preventDefault
+          // on this event ensures that click/tap won't be triggered at all.
+          event.preventDefault();
+        }
+        overlay._onCaptureClick(event);
+      }
+    },
+
+    /**
+     * Ensures the focus event is delegated to the right overlay.
+     * @param {!Event} event
+     * @private
+     */
+    _onCaptureFocus: function(event) {
+      var overlay = /** @type {?} */ (this.currentOverlay());
+      if (overlay) {
+        overlay._onCaptureFocus(event);
+      }
+    },
+
+    /**
+     * Ensures TAB and ESC keyboard events are delegated to the right overlay.
+     * @param {!Event} event
+     * @private
+     */
+    _onCaptureKeyDown: function(event) {
+      var overlay = /** @type {?} */ (this.currentOverlay());
+      if (overlay) {
+        if (Polymer.IronA11yKeysBehavior.keyboardEventMatchesKeys(event, 'esc')) {
+          overlay._onCaptureEsc(event);
+        } else if (Polymer.IronA11yKeysBehavior.keyboardEventMatchesKeys(event, 'tab')) {
+          overlay._onCaptureTab(event);
+        }
+      }
+    },
+
+    /**
+     * Returns if the overlay1 should be behind overlay2.
+     * @param {!Element} overlay1
+     * @param {!Element} overlay2
+     * @return {boolean}
+     * @private
+     */
+    _shouldBeBehindOverlay: function(overlay1, overlay2) {
+      var o1 = /** @type {?} */ (overlay1);
+      var o2 = /** @type {?} */ (overlay2);
+      return !o1.alwaysOnTop && o2.alwaysOnTop;
+    }
+  };
+
+  Polymer.IronOverlayManager = new Polymer.IronOverlayManagerClass();
+</script>
+<script>
+(function() {
+'use strict';
 
 /**
 Use `Polymer.IronOverlayBehavior` to implement an element that can be hidden or shown, and displays
@@ -14342,7 +15251,9 @@ context. You should place this element as a child of `<body>` whenever possible.
       },
 
       /**
-       * Returns the reason this dialog was last closed.
+       * Contains the reason(s) this overlay was last closed (see `iron-overlay-closed`).
+       * `IronOverlayBehavior` provides the `canceled` reason; implementers of the
+       * behavior can provide other reasons in addition to `canceled`.
        */
       closingReason: {
         // was a getter before, but needs to be a property so other
@@ -14350,33 +15261,35 @@ context. You should place this element as a child of `<body>` whenever possible.
         type: Object
       },
 
+      /**
+       * Set to true to enable restoring of focus when overlay is closed.
+       */
+      restoreFocusOnClose: {
+        type: Boolean,
+        value: false
+      },
+
+      /**
+       * Set to true to keep overlay always on top.
+       */
+      alwaysOnTop: {
+        type: Boolean
+      },
+
+      /**
+       * Shortcut to access to the overlay manager.
+       * @private
+       * @type {Polymer.IronOverlayManagerClass}
+       */
       _manager: {
         type: Object,
         value: Polymer.IronOverlayManager
       },
 
-      _boundOnCaptureClick: {
-        type: Function,
-        value: function() {
-          return this._onCaptureClick.bind(this);
-        }
-      },
-
-      _boundOnCaptureKeydown: {
-        type: Function,
-        value: function() {
-          return this._onCaptureKeydown.bind(this);
-        }
-      },
-
-      _boundOnCaptureFocus: {
-        type: Function,
-        value: function() {
-          return this._onCaptureFocus.bind(this);
-        }
-      },
-
-      /** @type {?Node} */
+      /**
+       * The node being focused.
+       * @type {?Node}
+       */
       _focusedChild: {
         type: Object
       }
@@ -14389,34 +15302,99 @@ context. You should place this element as a child of `<body>` whenever possible.
 
     /**
      * The backdrop element.
-     * @type Node
+     * @type {Element}
      */
     get backdropElement() {
       return this._manager.backdropElement;
     },
 
+    /**
+     * Returns the node to give focus to.
+     * @type {Node}
+     */
     get _focusNode() {
       return this._focusedChild || Polymer.dom(this).querySelector('[autofocus]') || this;
     },
 
+    /**
+     * Array of nodes that can receive focus (overlay included), ordered by `tabindex`.
+     * This is used to retrieve which is the first and last focusable nodes in order
+     * to wrap the focus for overlays `with-backdrop`.
+     *
+     * If you know what is your content (specifically the first and last focusable children),
+     * you can override this method to return only `[firstFocusable, lastFocusable];`
+     * @type {Array<Node>}
+     * @protected
+     */
+    get _focusableNodes() {
+      // Elements that can be focused even if they have [disabled] attribute.
+      var FOCUSABLE_WITH_DISABLED = [
+        'a[href]',
+        'area[href]',
+        'iframe',
+        '[tabindex]',
+        '[contentEditable=true]'
+      ];
+
+      // Elements that cannot be focused if they have [disabled] attribute.
+      var FOCUSABLE_WITHOUT_DISABLED = [
+        'input',
+        'select',
+        'textarea',
+        'button'
+      ];
+
+      // Discard elements with tabindex=-1 (makes them not focusable).
+      var selector = FOCUSABLE_WITH_DISABLED.join(':not([tabindex="-1"]),') +
+        ':not([tabindex="-1"]),' +
+        FOCUSABLE_WITHOUT_DISABLED.join(':not([disabled]):not([tabindex="-1"]),') +
+        ':not([disabled]):not([tabindex="-1"])';
+
+      var focusables = Polymer.dom(this).querySelectorAll(selector);
+      if (this.tabIndex >= 0) {
+        // Insert at the beginning because we might have all elements with tabIndex = 0,
+        // and the overlay should be the first of the list.
+        focusables.splice(0, 0, this);
+      }
+      // Sort by tabindex.
+      return focusables.sort(function (a, b) {
+        if (a.tabIndex === b.tabIndex) {
+          return 0;
+        }
+        if (a.tabIndex === 0 || a.tabIndex > b.tabIndex) {
+          return 1;
+        }
+        return -1;
+      });
+    },
+
     ready: function() {
-      // with-backdrop need tabindex to be set in order to trap the focus.
+      // Used to skip calls to notifyResize and refit while the overlay is animating.
+      this.__isAnimating = false;
+      // with-backdrop needs tabindex to be set in order to trap the focus.
       // If it is not set, IronOverlayBehavior will set it, and remove it if with-backdrop = false.
       this.__shouldRemoveTabIndex = false;
+      // Used for wrapping the focus on TAB / Shift+TAB.
+      this.__firstFocusableNode = this.__lastFocusableNode = null;
+      // Used for requestAnimationFrame when opened changes.
+      this.__openChangedAsync = null;
+      // Used for requestAnimationFrame when iron-resize is fired.
+      this.__onIronResizeAsync = null;
       this._ensureSetup();
     },
 
     attached: function() {
       // Call _openedChanged here so that position can be computed correctly.
-      if (this._callOpenedWhenReady) {
+      if (this.opened) {
         this._openedChanged();
       }
+      this._observer = Polymer.dom(this).observeNodes(this._onNodesChange);
     },
 
     detached: function() {
+      Polymer.dom(this).unobserveNodes(this._observer);
+      this._observer = null;
       this.opened = false;
-      this._manager.trackBackdrop(this);
-      this._manager.removeOverlay(this);
     },
 
     /**
@@ -14445,9 +15423,10 @@ context. You should place this element as a child of `<body>` whenever possible.
 
     /**
      * Cancels the overlay.
+     * @param {Event=} event The original event
      */
-    cancel: function() {
-      var cancelEvent = this.fire('iron-overlay-canceled', undefined, {cancelable: true});
+    cancel: function(event) {
+      var cancelEvent = this.fire('iron-overlay-canceled', event, {cancelable: true});
       if (cancelEvent.defaultPrevented) {
         return;
       }
@@ -14470,40 +15449,37 @@ context. You should place this element as a child of `<body>` whenever possible.
         this.removeAttribute('aria-hidden');
       } else {
         this.setAttribute('aria-hidden', 'true');
-        Polymer.dom(this).unobserveNodes(this._observer);
       }
 
       // wait to call after ready only if we're initially open
       if (!this._overlaySetup) {
-        this._callOpenedWhenReady = this.opened;
         return;
       }
 
-      this._manager.trackBackdrop(this);
+      this._manager.addOrRemoveOverlay(this);
+
+      if (this.__openChangedAsync) {
+        window.cancelAnimationFrame(this.__openChangedAsync);
+      }
+
+      // Defer any animation-related code on attached
+      // (_openedChanged gets called again on attached).
+      if (!this.isAttached) {
+        return;
+      }
+
+      this.__isAnimating = true;
 
       if (this.opened) {
-        this._prepareRenderOpened();
-      }
-
-      if (this._openChangedAsync) {
-        this.cancelAsync(this._openChangedAsync);
-      }
-      // Async here to allow overlay layer to become visible, and to avoid
-      // listeners to immediately close via a click.
-      this._openChangedAsync = this.async(function() {
-        // overlay becomes visible here
-        this.style.display = '';
-        // Force layout to ensure transition will go. Set offsetWidth to itself
-        // so that compilers won't remove it.
-        this.offsetWidth = this.offsetWidth;
-        if (this.opened) {
+        // requestAnimationFrame for non-blocking rendering
+        this.__openChangedAsync = window.requestAnimationFrame(function() {
+          this.__openChangedAsync = null;
+          this._prepareRenderOpened();
           this._renderOpened();
-        } else {
-          this._renderClosed();
-        }
-        this._toggleListeners();
-        this._openChangedAsync = null;
-      }, 1);
+        }.bind(this));
+      } else {
+        this._renderClosed();
+      }
     },
 
     _canceledChanged: function() {
@@ -14521,88 +15497,72 @@ context. You should place this element as a child of `<body>` whenever possible.
         this.__shouldRemoveTabIndex = false;
       }
       if (this.opened) {
-        this._manager.trackBackdrop(this);
-        if (this.withBackdrop) {
-          this.backdropElement.prepare();
-          // Give time to be added to document.
-          this.async(function(){
-            this.backdropElement.open();
-          }, 1);
-        } else {
-          this.backdropElement.close();
-        }
+        this._manager.trackBackdrop();
       }
     },
 
-    _toggleListener: function(enable, node, event, boundListener, capture) {
-      if (enable) {
-        // enable document-wide tap recognizer
-        if (event === 'tap') {
-          Polymer.Gestures.add(document, 'tap', null);
-        }
-        node.addEventListener(event, boundListener, capture);
-      } else {
-        // disable document-wide tap recognizer
-        if (event === 'tap') {
-          Polymer.Gestures.remove(document, 'tap', null);
-        }
-        node.removeEventListener(event, boundListener, capture);
-      }
-    },
-
-    _toggleListeners: function () {
-      this._toggleListener(this.opened, document, 'tap', this._boundOnCaptureClick, true);
-      this._toggleListener(this.opened, document, 'keydown', this._boundOnCaptureKeydown, true);
-      this._toggleListener(this.opened, document, 'focus', this._boundOnCaptureFocus, true);
-    },
-
-    // tasks which must occur before opening; e.g. making the element visible
+    /**
+     * tasks which must occur before opening; e.g. making the element visible.
+     * @protected
+     */
     _prepareRenderOpened: function() {
-      this._manager.addOverlay(this);
 
+      // Needed to calculate the size of the overlay so that transitions on its size
+      // will have the correct starting points.
       this._preparePositioning();
-      this.fit();
+      this.refit();
       this._finishPositioning();
 
-      if (this.withBackdrop) {
-        this.backdropElement.prepare();
+      // Safari will apply the focus to the autofocus element when displayed for the first time,
+      // so we blur it. Later, _applyFocus will set the focus if necessary.
+      if (this.noAutoFocus && document.activeElement === this._focusNode) {
+        this._focusNode.blur();
       }
     },
 
-    // tasks which cause the overlay to actually open; typically play an
-    // animation
+    /**
+     * Tasks which cause the overlay to actually open; typically play an animation.
+     * @protected
+     */
     _renderOpened: function() {
-      if (this.withBackdrop) {
-        this.backdropElement.open();
-      }
       this._finishRenderOpened();
     },
 
+    /**
+     * Tasks which cause the overlay to actually close; typically play an animation.
+     * @protected
+     */
     _renderClosed: function() {
-      if (this.withBackdrop) {
-        this.backdropElement.close();
-      }
       this._finishRenderClosed();
     },
 
+    /**
+     * Tasks to be performed at the end of open action. Will fire `iron-overlay-opened`.
+     * @protected
+     */
     _finishRenderOpened: function() {
-      // focus the child node with [autofocus]
-      this._applyFocus();
-
-      this._observer = Polymer.dom(this).observeNodes(this.notifyResize);
-      this.fire('iron-overlay-opened');
-    },
-
-    _finishRenderClosed: function() {
-      // hide the overlay and remove the backdrop
-      this.resetFit();
-      this.style.display = 'none';
-      this._manager.removeOverlay(this);
-
-      this._focusedChild = null;
+      // Focus the child node with [autofocus]
       this._applyFocus();
 
       this.notifyResize();
+      this.__isAnimating = false;
+      this.fire('iron-overlay-opened');
+    },
+
+    /**
+     * Tasks to be performed at the end of close action. Will fire `iron-overlay-closed`.
+     * @protected
+     */
+    _finishRenderClosed: function() {
+      // Hide the overlay and remove the backdrop.
+      this.style.display = 'none';
+      // Reset z-index only at the end of the animation.
+      this.style.zIndex = '';
+
+      this._applyFocus();
+
+      this.notifyResize();
+      this.__isAnimating = false;
       this.fire('iron-overlay-closed', this.closingReason);
     },
 
@@ -14613,13 +15573,24 @@ context. You should place this element as a child of `<body>` whenever possible.
     },
 
     _finishPositioning: function() {
+      // First, make it invisible & reactivate animations.
       this.style.display = 'none';
-      this.style.transform = this.style.webkitTransform = '';
-      // force layout to avoid application of transform
-      /** @suppress {suspiciousCode} */ this.offsetWidth;
+      // Force reflow before re-enabling animations so that they don't start.
+      // Set scrollTop to itself so that Closure Compiler doesn't remove this.
+      this.scrollTop = this.scrollTop;
       this.style.transition = this.style.webkitTransition = '';
+      this.style.transform = this.style.webkitTransform = '';
+      // Now that animations are enabled, make it visible again
+      this.style.display = '';
+      // Force reflow, so that following animations are properly started.
+      // Set scrollTop to itself so that Closure Compiler doesn't remove this.
+      this.scrollTop = this.scrollTop;
     },
 
+    /**
+     * Applies focus according to the opened state.
+     * @protected
+     */
     _applyFocus: function() {
       if (this.opened) {
         if (!this.noAutoFocus) {
@@ -14627,71 +15598,127 @@ context. You should place this element as a child of `<body>` whenever possible.
         }
       } else {
         this._focusNode.blur();
+        this._focusedChild = null;
         this._manager.focusOverlay();
       }
     },
 
+    /**
+     * Cancels (closes) the overlay. Call when click happens outside the overlay.
+     * @param {!Event} event
+     * @protected
+     */
     _onCaptureClick: function(event) {
-      if (this._manager.currentOverlay() === this &&
-          Polymer.dom(event).path.indexOf(this) === -1) {
-        if (this.noCancelOnOutsideClick) {
-          this._applyFocus();
-        } else {
-          this.cancel();
-        }
+      if (!this.noCancelOnOutsideClick) {
+        this.cancel(event);
       }
     },
 
-    _onCaptureKeydown: function(event) {
-      var ESC = 27;
-      if (this._manager.currentOverlay() === this &&
-          !this.noCancelOnEscKey &&
-          event.keyCode === ESC) {
-        this.cancel();
-      }
-    },
-
+    /**
+     * Keeps track of the focused child. If withBackdrop, traps focus within overlay.
+     * @param {!Event} event
+     * @protected
+     */
     _onCaptureFocus: function (event) {
-      if (this._manager.currentOverlay() === this &&
-          this.withBackdrop) {
-        var path = Polymer.dom(event).path;
-        if (path.indexOf(this) === -1) {
-          event.stopPropagation();
-          this._applyFocus();
-        } else {
-          this._focusedChild = path[0];
-        }
+      if (!this.withBackdrop) {
+        return;
+      }
+      var path = Polymer.dom(event).path;
+      if (path.indexOf(this) === -1) {
+        event.stopPropagation();
+        this._applyFocus();
+      } else {
+        this._focusedChild = path[0];
       }
     },
 
-    _onIronResize: function() {
-      if (this.opened) {
-        this.refit();
+    /**
+     * Handles the ESC key event and cancels (closes) the overlay.
+     * @param {!Event} event
+     * @protected
+     */
+    _onCaptureEsc: function(event) {
+      if (!this.noCancelOnEscKey) {
+        this.cancel(event);
       }
+    },
+
+    /**
+     * Handles TAB key events to track focus changes.
+     * Will wrap focus for overlays withBackdrop.
+     * @param {!Event} event
+     * @protected
+     */
+    _onCaptureTab: function(event) {
+      // TAB wraps from last to first focusable.
+      // Shift + TAB wraps from first to last focusable.
+      var shift = event.shiftKey;
+      var nodeToCheck = shift ? this.__firstFocusableNode : this.__lastFocusableNode;
+      var nodeToSet = shift ? this.__lastFocusableNode : this.__firstFocusableNode;
+      if (this.withBackdrop && this._focusedChild === nodeToCheck) {
+        // We set here the _focusedChild so that _onCaptureFocus will handle the
+        // wrapping of the focus (the next event after tab is focus).
+        this._focusedChild = nodeToSet;
+      }
+    },
+
+    /**
+     * Refits if the overlay is opened and not animating.
+     * @protected
+     */
+    _onIronResize: function() {
+      if (this.__onIronResizeAsync) {
+        window.cancelAnimationFrame(this.__onIronResizeAsync);
+        this.__onIronResizeAsync = null;
+      }
+      if (this.opened && !this.__isAnimating) {
+        this.__onIronResizeAsync = window.requestAnimationFrame(function() {
+          this.__onIronResizeAsync = null;
+          this.refit();
+        }.bind(this));
+      }
+    },
+
+    /**
+     * Will call notifyResize if overlay is opened.
+     * Can be overridden in order to avoid multiple observers on the same node.
+     * @protected
+     */
+    _onNodesChange: function() {
+      if (this.opened && !this.__isAnimating) {
+        this.notifyResize();
+      }
+      // Store it so we don't query too much.
+      var focusableNodes = this._focusableNodes;
+      this.__firstFocusableNode = focusableNodes[0];
+      this.__lastFocusableNode = focusableNodes[focusableNodes.length - 1];
     }
-
-/**
- * Fired after the `iron-overlay` opens.
- * @event iron-overlay-opened
- */
-
-/**
- * Fired when the `iron-overlay` is canceled, but before it is closed.
- * Cancel the event to prevent the `iron-overlay` from closing.
- * @event iron-overlay-canceled
- */
-
-/**
- * Fired after the `iron-overlay` closes.
- * @event iron-overlay-closed
- * @param {{canceled: (boolean|undefined)}} set to the `closingReason` attribute
- */
   };
 
   /** @polymerBehavior */
   Polymer.IronOverlayBehavior = [Polymer.IronFitBehavior, Polymer.IronResizableBehavior, Polymer.IronOverlayBehaviorImpl];
 
+  /**
+   * Fired after the overlay opens.
+   * @event iron-overlay-opened
+   */
 
+  /**
+   * Fired when the overlay is canceled, but before it is closed.
+   * @event iron-overlay-canceled
+   * @param {Event} event The closing of the overlay can be prevented
+   * by calling `event.preventDefault()`. The `event.detail` is the original event that
+   * originated the canceling (e.g. ESC keyboard event or click event outside the overlay).
+   */
+
+  /**
+   * Fired after the overlay closes.
+   * @event iron-overlay-closed
+   * @param {Event} event The `event.detail` is the `closingReason` property
+   * (contains `canceled`, whether the overlay was canceled).
+   */
+
+})();
 </script>
 
 
@@ -14714,9 +15741,8 @@ context. You should place this element as a child of `<body>` whenever possible.
         margin: 12px;
         font-size: 14px;
         cursor: default;
-        -webkit-transition: visibility 0.3s, -webkit-transform 0.3s, opacity 0.3s;
-        transition: visibility 0.3s, transform 0.3s, opacity 0.3s;
-        visibility: hidden;
+        -webkit-transition: -webkit-transform 0.3s, opacity 0.3s;
+        transition: transform 0.3s, opacity 0.3s;
         opacity: 0;
         -webkit-transform: translateY(100px);
         transform: translateY(100px);
@@ -14735,7 +15761,6 @@ context. You should place this element as a child of `<body>` whenever possible.
       }
 
       :host(.paper-toast-open) {
-        visibility: visible;
         opacity: 1;
         -webkit-transform: translateY(0px);
         transform: translateY(0px);
@@ -14785,6 +15810,20 @@ context. You should place this element as a child of `<body>` whenever possible.
             type: Boolean,
             value: true
           },
+
+          /**
+           * Overridden from `IronOverlayBehavior`.
+           * Set to true to disable auto-focusing the toast or child nodes with
+           * the `autofocus` attribute` when the overlay is opened.
+           */
+          noAutoFocus: {
+            type: Boolean,
+            value: true
+          }
+        },
+
+        listeners: {
+          'transitionend': '__onTransitionEnd'
         },
 
         /**
@@ -14811,9 +15850,23 @@ context. You should place this element as a child of `<body>` whenever possible.
         },
 
         /**
-         * Show the toast. Same as `open()` from `IronOverlayBehavior`.
+         * Show the toast. Without arguments, this is the same as `open()` from `IronOverlayBehavior`.
+         * @param {(Object|string)=} properties Properties to be set before opening the toast.
+         * e.g. `toast.show('hello')` or `toast.show({text: 'hello', duration: 3000})`
          */
-        show: function() {
+        show: function(properties) {
+          if (typeof properties == 'string') {
+            properties = { text: properties };
+          }
+          for (var property in properties) {
+            if (property.indexOf('_') === 0) {
+              console.warn('The property "' + property + '" is private and was not set.');
+            } else if (property in this) {
+              this[property] = properties[property];
+            } else {
+              console.warn('The property "' + property + '" is not valid.');
+            }
+          }
           this.open();
         },
 
@@ -14822,6 +15875,38 @@ context. You should place this element as a child of `<body>` whenever possible.
          */
         hide: function() {
           this.close();
+        },
+
+        /**
+         * Overridden from `IronFitBehavior`.
+         * Positions the toast at the bottom left of fitInto.
+         */
+        center: function () {
+          if (this.fitInto === window) {
+            this.style.bottom = this.style.left = '';
+          } else {
+            var rect = this.fitInto.getBoundingClientRect();
+            this.style.left = rect.left + 'px';
+            this.style.bottom = (window.innerHeight - rect.bottom) + 'px';
+          }
+        },
+
+        /**
+         * Called on transitions of the toast, indicating a finished animation
+         * @private
+         */
+        __onTransitionEnd: function(e) {
+          // there are different transitions that are happening when opening and
+          // closing the toast. The last one so far is for `opacity`.
+          // This marks the end of the transition, so we check for this to determine if this
+          // is the correct event.
+          if (e && e.target === this && e.propertyName === 'opacity') {
+            if (this.opened) {
+              this._finishRenderOpened();
+            } else {
+              this._finishRenderClosed();
+            }
+          }
         },
 
         /**
@@ -16299,6 +17384,12 @@ module.exports = Array.isArray || function (arr) {
       next();
     }
 
+    function setFocus(selected){
+      Polymer.dom(document)
+        .querySelector('section[data-route="' + selected + '"] .focus-target')
+        .focus();
+    }
+
     // Routes
     page('*', scrollToTop, closeDrawer, function(ctx, next) {
       next();
@@ -16306,16 +17397,19 @@ module.exports = Array.isArray || function (arr) {
 
     page('/', function() {
       app.route = 'home';
+      setFocus(app.route);
     });
 
     page(app.baseUrl, function() {
       app.route = 'home';
+      setFocus(app.route);
     });
 
     page('/blog', function() {
       app.route = 'blog';
     });
-         page('/blog/:name', function(data) {
+   
+    page('/blog/:name', function(data) {
       app.route = 'professional-testing-kit-full';      
     });
 
@@ -16327,7 +17421,9 @@ module.exports = Array.isArray || function (arr) {
 
     page('/contact', function() {
       app.route = 'contact';
+      setFocus(app.route);
     });
+    
     page('/work-with-us', function() {
       app.route = 'work-with-us';
     });
@@ -16360,17 +17456,17 @@ module.exports = Array.isArray || function (arr) {
   /* Application theme */
 
   :root {
-    --primary-text-color: #212121;
+    --primary-text-color: var(--paper-grey-900);
     --primary-background-color: #ffffff;
     --secondary-text-color: #737373;
     --disabled-text-color: #9b9b9b;
     --divider-color: #dbdbdb;
-    --primary-color: #3f51b5;
-    --light-primary-color: #c5cae9;
-    --dark-primary-color: #303f9f;
-    --accent-color: #ff4081;
-    --light-accent-color: #ff80ab;
-    --dark-accent-color: #f50057;
+    --primary-color: var(--paper-indigo-500);
+    --light-primary-color: var(--paper-indigo-100);
+    --dark-primary-color: var(--paper-indigo-700);
+    --accent-color: var(--paper-pink-a200);
+    --light-accent-color: var(--paper-pink-a100);
+    --dark-accent-color: var(--paper-pink-a400);
 
     /* Components */
 
@@ -16500,6 +17596,8 @@ module.exports = Array.isArray || function (arr) {
     margin: 10px;
   }
 
+  section[tabindex="-1"]:focus { outline: none; }
+
   /* Breakpoints */
 
   /* Small */
@@ -16593,6 +17691,13 @@ module.exports = Array.isArray || function (arr) {
         @apply(--paper-font-display2);
       }
 
+      .app-menu {
+        --paper-menu-selected-item: {
+          color: #fff;
+          background: var(--light-primary-color);
+        }
+      }
+
       paper-menu a > *, paper-menu paper-item > *, paper-menu paper-icon-item > * {
         pointer-events: none;
       }
@@ -16618,10 +17723,10 @@ module.exports = Array.isArray || function (arr) {
       }
     </style>
 
-    <h2 class="page-title">{{greeting}}</h2>
-    <span>Update text to change the greeting.</span>
+    <h1 class="page-title" tabindex="-1">About Us</h1>
+    <label for="greeting-input">We are passionate about helping companies improve their mobile web apps. Join our community!</label>
     
-    <input value="{{greeting::input}}">
+    
   </template>
 
   <script>

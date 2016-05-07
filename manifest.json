@@ -1,6 +1,6 @@
 {
-  "name": "MOBI-NOW",
-  "short_name": "MOBI-NOW",
+  "name": "Polymer Starter Kit",
+  "short_name": "Polymer Starter Kit",
   "icons": [{
         "src": "images/touch/icon-72x72.png",
         "sizes": "72x72",
