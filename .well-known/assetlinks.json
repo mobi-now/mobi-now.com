@@ -1,0 +1,9 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.mobinow.tvguide",
+    "sha256_cert_fingerprints":
+    ["A7:11:0F:92:7D:C4:2C:4C:33:7C:CA:94:C4:FA:9A:93:30:32:B5:A9:F7:33:AD:5E:D9:1E:AD:30:10:FD:BE:91"]
+  }
+}]
